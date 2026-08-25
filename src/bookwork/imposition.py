@@ -56,6 +56,12 @@ class ImpositionParams:
     margin_pt: float = DEFAULT_MARGIN_PT
     gutter_pt: float = DEFAULT_GUTTER_PT
     show_crop_marks: bool = True
+    #: Add one real blank page at the very front and one at the very back,
+    #: for gluing to a hardcover case (endpapers/pastedowns). Off by default
+    #: since it's specific to case binding — the saddle-stitch booklet this
+    #: project started from doesn't need it. See `compute_signature_order`'s
+    #: `leading_blanks`/`trailing_blanks`.
+    include_endpapers: bool = False
 
     def __post_init__(self) -> None:
         if self.signature_size_pages < 0:
@@ -71,9 +77,16 @@ class ImpositionParams:
             raise ValueError("margin_pt and gutter_pt must be >= 0")
 
 
-def compute_signature_order(page_count: int, signature_size_pages: int = 0) -> list[int | None]:
+def compute_signature_order(
+    page_count: int,
+    signature_size_pages: int = 0,
+    *,
+    leading_blanks: int = 0,
+    trailing_blanks: int = 0,
+) -> list[int | None]:
     """Return output positions -> source page index (0-based), or `None` for a
-    padding blank, in signature/booklet reading order.
+    blank (padding, or an explicit leading/trailing blank), in
+    signature/booklet reading order.
 
     This mirrors `psbook`'s behavior: pages are split into consecutive chunks
     of `signature_size_pages` (or one chunk covering everything, if 0), each
@@ -81,19 +94,30 @@ def compute_signature_order(page_count: int, signature_size_pages: int = 0) -> l
     reordered with the standard saddle-stitch formula so that printing the
     result 2-up, duplex, and folding once per signature yields correct reading
     order.
+
+    `leading_blanks`/`trailing_blanks` insert that many guaranteed blank
+    pages before/after the real content (e.g. `1`/`1` for hardcover endpapers
+    — see `ImpositionParams.include_endpapers`) before the usual padding (to
+    a full signature length) is added at the tail.
     """
     if signature_size_pages < 0:
         raise ValueError("signature_size_pages must be >= 0")
     if signature_size_pages != 0 and signature_size_pages % 4 != 0:
         raise ValueError("signature_size_pages must be 0 or a multiple of 4")
-    if page_count <= 0:
+    if leading_blanks < 0 or trailing_blanks < 0:
+        raise ValueError("leading_blanks and trailing_blanks must be >= 0")
+
+    content_and_required_blanks = leading_blanks + max(page_count, 0) + trailing_blanks
+    if content_and_required_blanks <= 0:
         return []
 
-    size = signature_size_pages or _round_up_to_multiple(page_count, 4)
-    padded_total = _round_up_to_multiple(page_count, size)
+    size = signature_size_pages or _round_up_to_multiple(content_and_required_blanks, 4)
+    padded_total = _round_up_to_multiple(content_and_required_blanks, size)
 
-    pages: list[int | None] = list(range(page_count))
-    pages.extend([None] * (padded_total - page_count))
+    pages: list[int | None] = [None] * leading_blanks
+    pages.extend(range(page_count))
+    pages.extend([None] * trailing_blanks)
+    pages.extend([None] * (padded_total - content_and_required_blanks))
 
     order: list[int | None] = []
     for start in range(0, padded_total, size):
@@ -132,7 +156,13 @@ def impose(src: fitz.Document, params: ImpositionParams | None = None) -> fitz.D
     dropped, so pagination problems are visible (see DESIGN.md §3.2, §4.1).
     """
     params = params or ImpositionParams()
-    order = compute_signature_order(src.page_count, params.signature_size_pages)
+    endpaper_count = 1 if params.include_endpapers else 0
+    order = compute_signature_order(
+        src.page_count,
+        params.signature_size_pages,
+        leading_blanks=endpaper_count,
+        trailing_blanks=endpaper_count,
+    )
 
     out = fitz.open()
     cell_width = params.sheet_width_pt / 2
@@ -212,24 +242,39 @@ def _draw_crop_marks(page: fitz.Page, cell: fitz.Rect) -> None:
         page.draw_line((x, y0), (x, y1), color=CROP_MARK_COLOR, width=CROP_MARK_WIDTH_PT)
 
 
-def bound_reading_order(page_count: int, signature_size_pages: int = 0) -> list[tuple[int, str]]:
-    """For each source page (0-based, in original reading order), return
-    `(sheet_index, side)` — which imposed sheet side (0-based, matching
-    `impose()`'s output document) and which cell ("left" or "right") it ends
-    up in.
+def bound_reading_order(
+    page_count: int,
+    signature_size_pages: int = 0,
+    *,
+    leading_blanks: int = 0,
+    trailing_blanks: int = 0,
+) -> list[tuple[int, str] | None]:
+    """Return, for every reading-order slot (0-based — slot 0 is the first
+    `leading_blanks` blank page(s), then real page 1, 2, ..., then
+    `trailing_blanks` and any further padding blanks), either `(sheet_index,
+    side)` — which imposed sheet side (0-based, matching `impose()`'s output
+    document) and which cell ("left" or "right") that slot ends up in — or
+    `None` for a blank slot.
 
     This is the inverse of `compute_signature_order`'s physical-position
     mapping, used to reconstruct the book's actual reading order from the
-    imposed sheets — see `build_bound_preview`.
+    imposed sheets — see `build_bound_preview`. The returned list's length is
+    the full padded page count (`leading_blanks + page_count +
+    trailing_blanks`, rounded up to a full signature), not just `page_count`.
     """
-    order = compute_signature_order(page_count, signature_size_pages)
-    result: list[tuple[int, str] | None] = [None] * page_count
+    order = compute_signature_order(
+        page_count,
+        signature_size_pages,
+        leading_blanks=leading_blanks,
+        trailing_blanks=trailing_blanks,
+    )
+    result: list[tuple[int, str] | None] = [None] * len(order)
     for physical_position, source_index in enumerate(order):
         if source_index is not None:
+            reading_position = leading_blanks + source_index
             side = "left" if physical_position % 2 == 0 else "right"
-            result[source_index] = (physical_position // 2, side)
-    assert all(entry is not None for entry in result)  # every real page appears exactly once
-    return result  # type: ignore[return-value]
+            result[reading_position] = (physical_position // 2, side)
+    return result
 
 
 #: Thin divider drawn down the middle of a two-page spread view, standing in
@@ -238,20 +283,28 @@ SPREAD_DIVIDER_COLOR = (0.75, 0.75, 0.75)
 SPREAD_DIVIDER_WIDTH_PT = 0.5
 
 
-def compute_bound_preview_views(page_count: int) -> list[tuple[int, ...]]:
-    """Group reading-order page indices (0-based) into the views a reader
-    would actually flip through: page 1 alone (its "verso" is the inside
-    front cover, which doesn't exist as a page), then two-page spreads
-    (even page, odd page) — e.g. (2,3), (4,5) — and, if the book has an even
-    number of pages, a final single page alone (its "recto" would be the
-    inside back cover).
+def compute_bound_preview_views(slot_count: int) -> list[tuple[int, ...]]:
+    """Group reading-order slot indices (0-based; a "slot" is a page,
+    possibly blank — see `bound_reading_order`) into the views a reader
+    would actually flip through: the first slot alone (its "verso" is the
+    inside front cover, which doesn't exist as a page), then two-page
+    spreads — e.g. (1,2), (3,4) — and, if `slot_count` is even, a final
+    single slot alone (its "recto" would be the inside back cover).
+
+    Without explicit leading/trailing blanks (see `ImpositionParams.
+    include_endpapers`), `slot_count` is just the real page count and the
+    trailing single is only there when that count is even. With them,
+    `slot_count` is always a multiple of 4 (`compute_signature_order`
+    rounds up to a full signature), so removing the first slot always
+    leaves an odd remainder — the trailing single is then unconditionally
+    guaranteed, and it's always the blank endpaper.
     """
-    if page_count <= 0:
+    if slot_count <= 0:
         return []
     views: list[tuple[int, ...]] = [(0,)]
     i = 1
-    while i < page_count:
-        if i + 1 < page_count:
+    while i < slot_count:
+        if i + 1 < slot_count:
             views.append((i, i + 1))
             i += 2
         else:
@@ -273,12 +326,18 @@ def build_bound_preview(imposed: fitz.Document, src_page_count: int, params: Imp
     visually exactly as a reader would encounter it, instead of requiring
     the sheet order in the Imposed tab to be mentally folded/unfolded.
     """
-    mapping = bound_reading_order(src_page_count, params.signature_size_pages)
+    endpaper_count = 1 if params.include_endpapers else 0
+    mapping = bound_reading_order(
+        src_page_count,
+        params.signature_size_pages,
+        leading_blanks=endpaper_count,
+        trailing_blanks=endpaper_count,
+    )
     cell_width = params.sheet_width_pt / 2
     cell_height = params.sheet_height_pt
 
     out = fitz.open()
-    for view in compute_bound_preview_views(src_page_count):
+    for view in compute_bound_preview_views(len(mapping)):
         if len(view) == 1:
             page = out.new_page(width=cell_width, height=cell_height)
             _copy_cell(page, imposed, mapping[view[0]], fitz.Rect(0, 0, cell_width, cell_height), cell_width)
@@ -305,12 +364,15 @@ def build_bound_preview(imposed: fitz.Document, src_page_count: int, params: Imp
 def _copy_cell(
     page: fitz.Page,
     imposed: fitz.Document,
-    mapping_entry: tuple[int, str],
+    mapping_entry: tuple[int, str] | None,
     target_rect: fitz.Rect,
     cell_width: float,
 ) -> None:
     """Crop one page's cell out of the imposed sheets and place it at
-    `target_rect` on a bound-preview page."""
+    `target_rect` on a bound-preview page. `None` (a blank slot) leaves that
+    area of the page blank."""
+    if mapping_entry is None:
+        return
     sheet_index, side = mapping_entry
     source_cell = (
         fitz.Rect(0, 0, cell_width, target_rect.height)
@@ -336,8 +398,10 @@ def compute_stats(page_count: int, params: ImpositionParams) -> ImpositionStats:
     if page_count <= 0:
         return ImpositionStats(0, params.signature_size_pages, 0, 0, 0, 0)
 
-    size = params.signature_size_pages or _round_up_to_multiple(page_count, 4)
-    padded_total = _round_up_to_multiple(page_count, size)
+    endpaper_count = 1 if params.include_endpapers else 0
+    content_and_required_blanks = endpaper_count + page_count + endpaper_count
+    size = params.signature_size_pages or _round_up_to_multiple(content_and_required_blanks, 4)
+    padded_total = _round_up_to_multiple(content_and_required_blanks, size)
     sheet_side_count = padded_total // 2
 
     return ImpositionStats(

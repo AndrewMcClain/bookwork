@@ -287,3 +287,89 @@ def test_compute_stats_empty_document():
     assert stats.source_page_count == 0
     assert stats.signature_count == 0
     assert stats.sheet_side_count == 0
+
+
+# --- Endpapers (blank leaves for gluing to a hardcover case) ---
+#
+# Hand-derived reference for page_count=8, signature_size_pages=8,
+# leading_blanks=trailing_blanks=1: content_and_required_blanks = 1+8+1 = 10,
+# rounds up to 2 signatures of 8 (16 slots total). Chunk 0 = [blank, p1..p6],
+# chunk 1 = [p7, blank, <6 filler blanks>]. Applying the same saddle-stitch
+# formula used elsewhere in this file to each chunk gives the physical order
+# below (None = blank).
+
+
+def test_compute_signature_order_with_endpapers():
+    order = compute_signature_order(page_count=8, signature_size_pages=8, leading_blanks=1, trailing_blanks=1)
+    assert order == [
+        6, None, 0, 5, 4, 1, 2, 3,  # chunk 0: [blank,0,1,2,3,4,5,6]
+        None, 7, None, None, None, None, None, None,  # chunk 1: [7,blank x7]
+    ]
+
+
+def test_bound_reading_order_with_endpapers_shifts_content_and_leaves_blanks():
+    mapping = bound_reading_order(page_count=8, signature_size_pages=8, leading_blanks=1, trailing_blanks=1)
+    assert len(mapping) == 16
+    assert mapping[0] is None  # leading blank (glued to front case)
+    # Content now starts at reading index 1 (page 1), not 0.
+    assert mapping[1] == (1, "left")  # page 1
+    assert mapping[2] == (2, "right")  # page 2
+    assert mapping[8] == (4, "right")  # page 8
+    # Trailing filler blanks.
+    assert mapping[9:] == [None] * 7
+
+
+def test_compute_bound_preview_views_with_endpapers_page_one_starts_a_spread():
+    # 16 total slots (see above): front blank alone, then page 1 immediately
+    # pairs with page 2 — no single-page view for page 1.
+    views = compute_bound_preview_views(16)
+    assert views[0] == (0,)
+    assert views[1] == (1, 2)
+
+
+def test_build_bound_preview_with_endpapers_end_to_end(make_pdf):
+    path = make_pdf(num_pages=8)
+    src = fitz.open(path)
+    params = ImpositionParams(signature_size_pages=8, include_endpapers=True)
+    imposed = impose(src, params)
+
+    preview = build_bound_preview(imposed, src_page_count=8, params=params)
+
+    assert preview.page_count == 9  # [blank],[1,2],[3,4],[5,6],[7,8],[blank,blank],[blank,blank],[blank,blank],[blank]
+
+    # Front cover: blank, alone, single-width.
+    assert preview[0].get_text().strip() == ""
+    assert preview[0].rect.width == params.sheet_width_pt / 2
+
+    # Page 1 is the LEFT half of the first real spread, not alone.
+    spread = preview[1]
+    assert "Page 1" in spread.get_text()
+    assert "Page 2" in spread.get_text()
+    rect1 = spread.search_for("Page 1")[0]
+    assert rect1.x1 <= spread.rect.width / 2
+
+    # Last real content page (8) is the left half of a spread, not alone —
+    # it's followed by blank filler spreads.
+    assert "Page 8" in preview[4].get_text()
+
+    # Back cover: blank, alone, single-width — guaranteed by construction.
+    assert preview[-1].get_text().strip() == ""
+    assert preview[-1].rect.width == params.sheet_width_pt / 2
+
+
+def test_compute_stats_accounts_for_endpapers():
+    # 8 content pages, signature size 8: with no endpapers this divides
+    # evenly (1 signature, no padding). With endpapers, 1+8+1=10 content
+    # slots round up to a *second* full 8-page signature (16 slots), adding
+    # 8 blanks total (2 endpapers + 6 filler).
+    without_endpapers = compute_stats(page_count=8, params=ImpositionParams(signature_size_pages=8))
+    assert without_endpapers.blank_pages_added == 0
+    assert without_endpapers.signature_count == 1
+    assert without_endpapers.sheet_side_count == 4
+
+    with_endpapers = compute_stats(
+        page_count=8, params=ImpositionParams(signature_size_pages=8, include_endpapers=True)
+    )
+    assert with_endpapers.blank_pages_added == 8
+    assert with_endpapers.signature_count == 2
+    assert with_endpapers.sheet_side_count == 8

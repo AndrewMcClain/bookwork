@@ -61,6 +61,15 @@ ordering mistake, since it shows the book exactly as a reader would
 experience it, rather than requiring you to mentally fold/unfold the Imposed
 tab's sheet order.
 
+**Add blank endpapers (case binding)**, in the Imposed tab's settings panel,
+adds one real blank page at the very front and one at the very back of the
+*actual printed output* (not just the preview) — for gluing the text block
+into a hardcover case. It's off by default (a plain stapled/saddle-stitch
+booklet doesn't need it). With it on, page 1 shifts to be the left page of
+its own spread (rather than standing alone), and the very last page is
+always guaranteed blank and shown alone, since padding always fills out to a
+full signature.
+
 ## Known follow-ups
 
 - The thumbnail sidebar (`widgets/thumbnail_list.py`) has some extra blank

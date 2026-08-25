@@ -55,6 +55,14 @@ class ImpositionPanel(QWidget):
             "edge, the two on the spine side mark the fold line."
         )
 
+        self._include_endpapers = QCheckBox("Add blank endpapers (case binding)")
+        self._include_endpapers.setChecked(initial.include_endpapers)
+        self._include_endpapers.setToolTip(
+            "Add one real blank page at the very front and one at the very\n"
+            "back, for gluing to a hardcover case. Not needed for a plain\n"
+            "stapled/saddle-stitch booklet."
+        )
+
         self._apply_button = QPushButton("Apply")
         self._apply_button.clicked.connect(self.try_emit_params)
 
@@ -65,6 +73,7 @@ class ImpositionPanel(QWidget):
         form.addRow("Margin (in)", self._margin_in)
         form.addRow("Gutter (in)", self._gutter_in)
         form.addRow(self._show_crop_marks)
+        form.addRow(self._include_endpapers)
         form.addRow(self._apply_button)
 
         self._stats_label = QLabel("Open a PDF to see layout stats.")
@@ -106,6 +115,7 @@ class ImpositionPanel(QWidget):
             margin_pt=self._margin_in.value() * _PT_PER_INCH,
             gutter_pt=self._gutter_in.value() * _PT_PER_INCH,
             show_crop_marks=self._show_crop_marks.isChecked(),
+            include_endpapers=self._include_endpapers.isChecked(),
         )
 
     def try_emit_params(self) -> None:
