@@ -5,7 +5,8 @@ A cross-platform (Windows/macOS/Linux) desktop tool for
 printing: view a PDF, reorder and arrange pages 2-up per sheet, and produce a
 print-ready file. See [DESIGN.md](DESIGN.md) for the project's design doc and roadmap.
 
-**Status:** early development — milestone v0 (core app shell + PDF viewer).
+**Status:** early development — milestone v1 (native imposition pipeline +
+Source/Imposed viewer tabs) done.
 
 ## Requirements
 
@@ -39,11 +40,19 @@ On a Linux machine with no display attached (e.g. CI, SSH session), set
 
 ```
 src/bookwork/
-  app.py            # QApplication entry point
-  main_window.py    # main window: menu, thumbnail sidebar, page view
-  pdf_document.py   # PyMuPDF wrapper (all `pymupdf` usage lives here)
+  app.py              # QApplication entry point
+  main_window.py      # main window: menu, Source/Imposed tabs
+  pdf_document.py     # PyMuPDF wrapper (all `pymupdf` usage lives here)
+  imposition.py       # signature order + 2-up placement (no shell tools)
   widgets/
-    page_view.py       # single-page display
-    thumbnail_list.py  # page thumbnail sidebar
+    pdf_viewer_pane.py    # thumbnail sidebar + page view, reused per tab
+    page_view.py          # single-page display, scaled to fit
+    thumbnail_list.py     # page thumbnail sidebar
+    imposition_panel.py   # signature size / sheet size / margin / gutter form
 tests/
 ```
+
+## Known follow-ups
+
+- The thumbnail sidebar (`widgets/thumbnail_list.py`) has some extra blank
+  space in its layout that needs a pass — cosmetic, not functional.

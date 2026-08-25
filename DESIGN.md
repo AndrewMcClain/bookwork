@@ -1,7 +1,9 @@
 # Bookwork — Design Doc
 
 Status: **draft / living document** — updated as decisions get made.
-Last updated: 2026-08-25 — resequenced milestones (§7): GUI + source PDF view first
+Last updated: 2026-08-25 — v1 done: native imposition pipeline + Imposed tab;
+corrected `psbook -s` unit (pages, not sheets) per §2.1 after testing against
+real `psbook`
 
 ## 1. Vision
 
@@ -30,9 +32,12 @@ imposition** workflow using classic Unix PostScript tools:
 1. **Convert PDF → PS** — `pdf2ps` (Ghostscript) turns the source PDF into PostScript,
    since `psutils` operates on PS, not PDF directly.
 2. **Reorder pages into signature/booklet order** — `psbook -s20` groups pages into
-   signatures of 20 sheets (i.e. up to 20 physical sheets = 80 pages per signature,
-   `psbook`'s `-s` is in *sheets*, must be a multiple of 4) and reorders them so that
-   when folded, the pages read in order.
+   signatures of 20 **pages** (5 sheets) and reorders them so that when folded, the
+   pages read in order. (Verified directly against `psbook` 3.3.14: `-s` is pages per
+   signature, not sheets as originally assumed here — `0` = one signature for the
+   whole document (default), `1` = don't rearrange, otherwise must be a multiple of 4.
+   Also confirmed by testing: the last, partial signature is padded with blank sides
+   up to the *full* signature length, not just to a multiple of 4.)
 3. **Impose 2-up** — `psnup -2 -m0 -b0 -P5.5inx8.5in -pletter` places two of the
    (already-reordered) logical pages onto each side of a Letter sheet, with no margin
    (`-m0`) and no border (`-b0`), targeting a 5.5"×8.5" final trim size (i.e. Letter cut
@@ -143,7 +148,9 @@ PostScript round-trip — see §3.1), with the known rough edges addressed:
    ▼
 [padded, 1-up logical pages]
    │  (2) compute signature/booklet order (our own port of psbook's algorithm,
-   │      parameterized by signature size in sheets)
+   │      parameterized by signature size in *pages* — matching psbook's own
+   │      unit, verified against real psbook output; padding rounds each
+   │      signature up to a full signature length, not just a multiple of 4)
    ▼
 [signature-ordered, 1-up]
    │  (3) build output document: for each output sheet side, create a new page at
@@ -187,7 +194,7 @@ PostScript round-trip — see §3.1), with the known rough edges addressed:
 |---|---|---|
 | Sheet (paper) size | Letter | target physical sheet size, e.g. via a `fitz.paper_rect("letter")` helper |
 | Trim (final page) size | 5.5in × 8.5in | Letter cut in half; drives each half's placement rect |
-| Signature size | 20 sheets | our own signature-order function, parameterized; validate against page count |
+| Signature size | 20 pages (5 sheets) | our own signature-order function, parameterized in pages (matches psbook's unit); validate against page count |
 | Margin | 0 | pages currently butted edge-to-edge; likely needs to become nonzero |
 | Gutter shift | ~18–36pt, unresolved | needs a correct, tested value/formula, applied via the placement `Matrix` |
 | Scale | ~97% | to keep content on-page after gutter shift; also via the placement `Matrix` |

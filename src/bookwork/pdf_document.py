@@ -31,9 +31,24 @@ class PdfDocument:
         self.path = Path(path)
         self._doc = fitz.open(self.path)
 
+    @classmethod
+    def from_fitz_document(cls, doc: fitz.Document, display_name: str) -> "PdfDocument":
+        """Wrap an already-open, in-memory `fitz.Document` (e.g. imposition
+        output) that has no path of its own on disk."""
+        instance = cls.__new__(cls)
+        instance.path = Path(display_name)
+        instance._doc = doc
+        return instance
+
     @property
     def page_count(self) -> int:
         return self._doc.page_count
+
+    @property
+    def fitz_document(self) -> fitz.Document:
+        """The underlying `fitz.Document`, for code (like `imposition.impose`)
+        that needs to operate on it directly rather than through this wrapper."""
+        return self._doc
 
     def render_page(self, index: int, dpi: int = DEFAULT_RENDER_DPI) -> QImage:
         """Render page `index` (0-based) to a `QImage` at the given DPI."""
