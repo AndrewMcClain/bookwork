@@ -13,6 +13,7 @@ from bookwork.imposition import (
     ImpositionParams,
     bound_reading_order,
     build_bound_preview,
+    compute_bound_preview_views,
     compute_signature_order,
     compute_stats,
     impose,
@@ -202,7 +203,24 @@ def test_bound_reading_order_matches_psbook_s8_reference():
     assert mapping == expected
 
 
-def test_build_bound_preview_reconstructs_reading_order(make_pdf):
+def test_compute_bound_preview_views_first_and_last_page_alone_when_even():
+    # 8 pages (even): page 1 alone, spreads (2,3) (4,5) (6,7), page 8 alone.
+    assert compute_bound_preview_views(8) == [(0,), (1, 2), (3, 4), (5, 6), (7,)]
+
+
+def test_compute_bound_preview_views_no_dangling_single_when_odd():
+    # 7 pages (odd): page 1 alone, then full spreads all the way through.
+    assert compute_bound_preview_views(7) == [(0,), (1, 2), (3, 4), (5, 6)]
+
+
+def test_compute_bound_preview_views_small_cases():
+    assert compute_bound_preview_views(0) == []
+    assert compute_bound_preview_views(1) == [(0,)]
+    assert compute_bound_preview_views(2) == [(0,), (1,)]
+    assert compute_bound_preview_views(3) == [(0,), (1, 2)]
+
+
+def test_build_bound_preview_reconstructs_reading_order_as_spreads(make_pdf):
     path = make_pdf(num_pages=8)
     src = fitz.open(path)
     params = ImpositionParams(signature_size_pages=8, margin_pt=10, gutter_pt=10)
@@ -210,9 +228,40 @@ def test_build_bound_preview_reconstructs_reading_order(make_pdf):
 
     preview = build_bound_preview(imposed, src_page_count=8, params=params)
 
-    assert preview.page_count == 8
-    for i in range(8):
-        assert f"Page {i + 1}" in preview[i].get_text()
+    # 5 views: [1], [2,3], [4,5], [6,7], [8] — matching how a reader would
+    # actually flip through the book (single cover pages, spreads between).
+    assert preview.page_count == 5
+
+    assert "Page 1" in preview[0].get_text()
+    assert preview[0].rect.width == params.sheet_width_pt / 2  # single-width
+
+    assert "Page 2" in preview[1].get_text()
+    assert "Page 3" in preview[1].get_text()
+    assert preview[1].rect.width == params.sheet_width_pt  # double-width spread
+
+    assert "Page 4" in preview[2].get_text()
+    assert "Page 5" in preview[2].get_text()
+    assert "Page 6" in preview[3].get_text()
+    assert "Page 7" in preview[3].get_text()
+
+    assert "Page 8" in preview[4].get_text()
+    assert preview[4].rect.width == params.sheet_width_pt / 2  # single-width
+
+
+def test_build_bound_preview_left_right_order_within_a_spread(make_pdf):
+    # Within a spread, the lower page number must render on the left.
+    path = make_pdf(num_pages=8)
+    src = fitz.open(path)
+    params = ImpositionParams(signature_size_pages=8, margin_pt=10, gutter_pt=0)
+    imposed = impose(src, params)
+
+    preview = build_bound_preview(imposed, src_page_count=8, params=params)
+
+    spread = preview[1]  # pages 2 and 3
+    rect2 = spread.search_for("Page 2")[0]
+    rect3 = spread.search_for("Page 3")[0]
+    assert rect2.x1 <= spread.rect.width / 2
+    assert rect3.x0 >= spread.rect.width / 2
 
 
 def test_compute_stats_reports_signatures_and_padding():

@@ -53,11 +53,13 @@ src/bookwork/
 tests/
 ```
 
-The **Bound Preview** tab reconstructs the book's actual reading order
-(page 1, 2, 3, ...) by cropping each page back out of the already-imposed
-sheets, so a pagination mistake shows up visually in the order you'd actually
-read it, rather than requiring you to mentally fold/unfold the Imposed tab's
-sheet order.
+The **Bound Preview** tab simulates actually flipping through the bound book:
+single-page views for the front/back cover, two-page spreads (with a spine
+divider) everywhere else — cropped from the already-imposed sheets, in actual
+reading order. This is the best place to spot an off-by-one or signature
+ordering mistake, since it shows the book exactly as a reader would
+experience it, rather than requiring you to mentally fold/unfold the Imposed
+tab's sheet order.
 
 ## Known follow-ups
 

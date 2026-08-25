@@ -232,30 +232,92 @@ def bound_reading_order(page_count: int, signature_size_pages: int = 0) -> list[
     return result  # type: ignore[return-value]
 
 
+#: Thin divider drawn down the middle of a two-page spread view, standing in
+#: for the book's spine when it's open.
+SPREAD_DIVIDER_COLOR = (0.75, 0.75, 0.75)
+SPREAD_DIVIDER_WIDTH_PT = 0.5
+
+
+def compute_bound_preview_views(page_count: int) -> list[tuple[int, ...]]:
+    """Group reading-order page indices (0-based) into the views a reader
+    would actually flip through: page 1 alone (its "verso" is the inside
+    front cover, which doesn't exist as a page), then two-page spreads
+    (even page, odd page) — e.g. (2,3), (4,5) — and, if the book has an even
+    number of pages, a final single page alone (its "recto" would be the
+    inside back cover).
+    """
+    if page_count <= 0:
+        return []
+    views: list[tuple[int, ...]] = [(0,)]
+    i = 1
+    while i < page_count:
+        if i + 1 < page_count:
+            views.append((i, i + 1))
+            i += 2
+        else:
+            views.append((i,))
+            i += 1
+    return views
+
+
 def build_bound_preview(imposed: fitz.Document, src_page_count: int, params: ImpositionParams) -> fitz.Document:
-    """Reconstruct the book's actual reading order (page 1, 2, 3, ...) by
-    cropping each source page's cell back out of the already-imposed sheets.
+    """Reconstruct what a reader would actually see flipping through the
+    bound book: single-page views at the front/back cover, two-page spreads
+    everywhere else — by cropping each page's cell back out of the
+    already-imposed sheets (see `compute_bound_preview_views`).
 
     Unlike re-rendering from the original source, this shows each page
     exactly as it will appear once printed and folded — including the
     margin/gutter shift and any crop marks — so a pagination mistake (an
-    off-by-one, a swapped signature, ...) shows up visually in the correct
-    final reading order instead of requiring the reader to mentally
-    fold/unfold the sheet-order Imposed view.
+    off-by-one, a swapped signature, misaligned spread, ...) shows up
+    visually exactly as a reader would encounter it, instead of requiring
+    the sheet order in the Imposed tab to be mentally folded/unfolded.
     """
     mapping = bound_reading_order(src_page_count, params.signature_size_pages)
     cell_width = params.sheet_width_pt / 2
+    cell_height = params.sheet_height_pt
 
     out = fitz.open()
-    for sheet_index, side in mapping:
-        cell = (
-            fitz.Rect(0, 0, cell_width, params.sheet_height_pt)
-            if side == "left"
-            else fitz.Rect(cell_width, 0, params.sheet_width_pt, params.sheet_height_pt)
-        )
-        page = out.new_page(width=cell.width, height=cell.height)
-        page.show_pdf_page(page.rect, imposed, sheet_index, clip=cell)
+    for view in compute_bound_preview_views(src_page_count):
+        if len(view) == 1:
+            page = out.new_page(width=cell_width, height=cell_height)
+            _copy_cell(page, imposed, mapping[view[0]], fitz.Rect(0, 0, cell_width, cell_height), cell_width)
+        else:
+            left_index, right_index = view
+            page = out.new_page(width=cell_width * 2, height=cell_height)
+            _copy_cell(page, imposed, mapping[left_index], fitz.Rect(0, 0, cell_width, cell_height), cell_width)
+            _copy_cell(
+                page,
+                imposed,
+                mapping[right_index],
+                fitz.Rect(cell_width, 0, cell_width * 2, cell_height),
+                cell_width,
+            )
+            page.draw_line(
+                (cell_width, 0),
+                (cell_width, cell_height),
+                color=SPREAD_DIVIDER_COLOR,
+                width=SPREAD_DIVIDER_WIDTH_PT,
+            )
     return out
+
+
+def _copy_cell(
+    page: fitz.Page,
+    imposed: fitz.Document,
+    mapping_entry: tuple[int, str],
+    target_rect: fitz.Rect,
+    cell_width: float,
+) -> None:
+    """Crop one page's cell out of the imposed sheets and place it at
+    `target_rect` on a bound-preview page."""
+    sheet_index, side = mapping_entry
+    source_cell = (
+        fitz.Rect(0, 0, cell_width, target_rect.height)
+        if side == "left"
+        else fitz.Rect(cell_width, 0, cell_width * 2, target_rect.height)
+    )
+    page.show_pdf_page(target_rect, imposed, sheet_index, clip=source_cell)
 
 
 @dataclass(frozen=True)

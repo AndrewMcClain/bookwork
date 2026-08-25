@@ -116,10 +116,13 @@ def test_opening_pdf_also_populates_bound_preview_tab_in_reading_order(qtbot, ma
     window.open_pdf(str(path))
 
     assert window._bound_preview_pane.document is not None
-    assert window._bound_preview_pane.document.page_count == 8
-    for i in range(8):
-        text = window._bound_preview_pane.document.fitz_document[i].get_text()
-        assert f"Page {i + 1}" in text
+    # 8 pages -> views [1],[2,3],[4,5],[6,7],[8]: 5 views (single cover pages,
+    # spreads in between), matching how a reader flips through the book.
+    doc = window._bound_preview_pane.document.fitz_document
+    assert doc.page_count == 5
+    assert "Page 1" in doc[0].get_text()
+    assert "Page 2" in doc[1].get_text() and "Page 3" in doc[1].get_text()
+    assert "Page 8" in doc[4].get_text()
 
 
 def test_bound_preview_tab_is_third_tab_and_navigable(qtbot, make_pdf):
