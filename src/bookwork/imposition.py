@@ -33,6 +33,15 @@ DEFAULT_MARGIN_PT = 18.0
 #: on top of the base margin — leaves room for binding.
 DEFAULT_GUTTER_PT = 18.0
 
+#: Crop marks: a small "+" drawn at each corner of each cell, marking where
+#: that cell's trim boundary (and, for the two inner corners, the fold line)
+#: falls. Length of each arm of the cross, and line width/color.
+#: Chosen to still read clearly once the page view scales a whole landscape
+#: sheet down to fit a normal window (there's no zoom control yet).
+CROP_MARK_LENGTH_PT = 10.0
+CROP_MARK_WIDTH_PT = 0.75
+CROP_MARK_COLOR = (0.3, 0.3, 0.3)
+
 
 @dataclass(frozen=True)
 class ImpositionParams:
@@ -46,6 +55,7 @@ class ImpositionParams:
     sheet_height_pt: float = DEFAULT_SHEET_HEIGHT_PT
     margin_pt: float = DEFAULT_MARGIN_PT
     gutter_pt: float = DEFAULT_GUTTER_PT
+    show_crop_marks: bool = True
 
     def __post_init__(self) -> None:
         if self.signature_size_pages < 0:
@@ -136,6 +146,10 @@ def impose(src: fitz.Document, params: ImpositionParams | None = None) -> fitz.D
         _place_in_cell(page, src, left_index, left_cell, params, spine_on_right=True)
         _place_in_cell(page, src, right_index, right_cell, params, spine_on_right=False)
 
+        if params.show_crop_marks:
+            _draw_crop_marks(page, left_cell)
+            _draw_crop_marks(page, right_cell)
+
     return out
 
 
@@ -173,3 +187,102 @@ def _place_in_cell(
 
     target = fitz.Rect(x0, y0, x1, y1)
     page.show_pdf_page(target, src, source_page_index, keep_proportion=True)
+
+
+def _draw_crop_marks(page: fitz.Page, cell: fitz.Rect) -> None:
+    """Draw a small "+" at each of `cell`'s four corners.
+
+    `cell` is the cell's full trim boundary (not the margin-inset content
+    area), so the two corners on the spine side mark the fold line (both
+    cells share those points exactly, so their marks coincide), and the
+    outer two corners mark the sheet's own outer edge.
+
+    Each arm is clamped to the physical sheet (`page.rect`): at the spine
+    corners, which sit mid-page, the full "+" is visible; at the sheet's
+    outer corners, half of a full "+" would fall outside the sheet and be
+    invisible (there's no bleed area beyond the sheet edge to draw into), so
+    those become inward-pointing "L" marks instead.
+    """
+    half = CROP_MARK_LENGTH_PT / 2
+    sheet = page.rect
+    for x, y in (cell.tl, cell.tr, cell.bl, cell.br):
+        x0, x1 = max(sheet.x0, x - half), min(sheet.x1, x + half)
+        y0, y1 = max(sheet.y0, y - half), min(sheet.y1, y + half)
+        page.draw_line((x0, y), (x1, y), color=CROP_MARK_COLOR, width=CROP_MARK_WIDTH_PT)
+        page.draw_line((x, y0), (x, y1), color=CROP_MARK_COLOR, width=CROP_MARK_WIDTH_PT)
+
+
+def bound_reading_order(page_count: int, signature_size_pages: int = 0) -> list[tuple[int, str]]:
+    """For each source page (0-based, in original reading order), return
+    `(sheet_index, side)` — which imposed sheet side (0-based, matching
+    `impose()`'s output document) and which cell ("left" or "right") it ends
+    up in.
+
+    This is the inverse of `compute_signature_order`'s physical-position
+    mapping, used to reconstruct the book's actual reading order from the
+    imposed sheets — see `build_bound_preview`.
+    """
+    order = compute_signature_order(page_count, signature_size_pages)
+    result: list[tuple[int, str] | None] = [None] * page_count
+    for physical_position, source_index in enumerate(order):
+        if source_index is not None:
+            side = "left" if physical_position % 2 == 0 else "right"
+            result[source_index] = (physical_position // 2, side)
+    assert all(entry is not None for entry in result)  # every real page appears exactly once
+    return result  # type: ignore[return-value]
+
+
+def build_bound_preview(imposed: fitz.Document, src_page_count: int, params: ImpositionParams) -> fitz.Document:
+    """Reconstruct the book's actual reading order (page 1, 2, 3, ...) by
+    cropping each source page's cell back out of the already-imposed sheets.
+
+    Unlike re-rendering from the original source, this shows each page
+    exactly as it will appear once printed and folded — including the
+    margin/gutter shift and any crop marks — so a pagination mistake (an
+    off-by-one, a swapped signature, ...) shows up visually in the correct
+    final reading order instead of requiring the reader to mentally
+    fold/unfold the sheet-order Imposed view.
+    """
+    mapping = bound_reading_order(src_page_count, params.signature_size_pages)
+    cell_width = params.sheet_width_pt / 2
+
+    out = fitz.open()
+    for sheet_index, side in mapping:
+        cell = (
+            fitz.Rect(0, 0, cell_width, params.sheet_height_pt)
+            if side == "left"
+            else fitz.Rect(cell_width, 0, params.sheet_width_pt, params.sheet_height_pt)
+        )
+        page = out.new_page(width=cell.width, height=cell.height)
+        page.show_pdf_page(page.rect, imposed, sheet_index, clip=cell)
+    return out
+
+
+@dataclass(frozen=True)
+class ImpositionStats:
+    """Summary numbers about an imposition run, for display in the UI."""
+
+    source_page_count: int
+    signature_size_pages: int  # 0 means "single signature covering everything"
+    signature_count: int
+    blank_pages_added: int
+    sheet_side_count: int  # number of pages in the Imposed output document
+    physical_sheet_count: int  # sheet_side_count / 2 (front + back per sheet)
+
+
+def compute_stats(page_count: int, params: ImpositionParams) -> ImpositionStats:
+    if page_count <= 0:
+        return ImpositionStats(0, params.signature_size_pages, 0, 0, 0, 0)
+
+    size = params.signature_size_pages or _round_up_to_multiple(page_count, 4)
+    padded_total = _round_up_to_multiple(page_count, size)
+    sheet_side_count = padded_total // 2
+
+    return ImpositionStats(
+        source_page_count=page_count,
+        signature_size_pages=params.signature_size_pages,
+        signature_count=padded_total // size,
+        blank_pages_added=padded_total - page_count,
+        sheet_side_count=sheet_side_count,
+        physical_sheet_count=sheet_side_count // 2,
+    )

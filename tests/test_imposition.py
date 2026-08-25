@@ -9,7 +9,14 @@ written. `None` stands in for a blank padding page.
 import pymupdf as fitz
 import pytest
 
-from bookwork.imposition import ImpositionParams, compute_signature_order, impose
+from bookwork.imposition import (
+    ImpositionParams,
+    bound_reading_order,
+    build_bound_preview,
+    compute_signature_order,
+    compute_stats,
+    impose,
+)
 
 
 def test_signature_order_matches_psbook_s8_two_full_signatures():
@@ -142,3 +149,92 @@ def test_gutter_pushes_content_away_from_spine(make_pdf):
     rect1_no_gutter = no_gutter[0].search_for("Page 1")[0]
     rect1_with_gutter = with_gutter[0].search_for("Page 1")[0]
     assert (rect1_with_gutter.x0 - cell_boundary) > (rect1_no_gutter.x0 - cell_boundary)
+
+
+def test_crop_marks_drawn_by_default(make_pdf):
+    path = make_pdf(num_pages=4)
+    src = fitz.open(path)
+    out = impose(src, ImpositionParams(signature_size_pages=4))
+    drawings = out[0].get_drawings()
+    assert len(drawings) > 0
+
+
+def test_crop_marks_stay_within_the_sheet(make_pdf):
+    # Marks at the sheet's own outer corners must not extend past the page
+    # boundary (there's no bleed area out there to draw into, so anything
+    # past the edge would simply be invisible).
+    path = make_pdf(num_pages=4)
+    src = fitz.open(path)
+    out = impose(src, ImpositionParams(signature_size_pages=4))
+    page = out[0]
+    sheet = page.rect
+    for drawing in page.get_drawings():
+        for item in drawing["items"]:
+            for point in item[1:]:
+                if hasattr(point, "x"):
+                    assert sheet.x0 <= point.x <= sheet.x1
+                    assert sheet.y0 <= point.y <= sheet.y1
+
+
+def test_crop_marks_can_be_disabled(make_pdf):
+    path = make_pdf(num_pages=4)
+    src = fitz.open(path)
+    out = impose(src, ImpositionParams(signature_size_pages=4, show_crop_marks=False))
+    drawings = out[0].get_drawings()
+    assert len(drawings) == 0
+
+
+def test_bound_reading_order_matches_psbook_s8_reference():
+    # Verified against real psbook -s8 output for 8 pages: physical order
+    # (0-indexed) is [7,0,1,6,5,2,3,4] -> sheets [0,0,1,1,2,2,3,3], cells
+    # alternating left,right.
+    mapping = bound_reading_order(page_count=8, signature_size_pages=8)
+    expected = [
+        (0, "right"),  # page 1 (source index 0)
+        (1, "left"),  # page 2
+        (2, "right"),  # page 3
+        (3, "left"),  # page 4
+        (3, "right"),  # page 5
+        (2, "left"),  # page 6
+        (1, "right"),  # page 7
+        (0, "left"),  # page 8
+    ]
+    assert mapping == expected
+
+
+def test_build_bound_preview_reconstructs_reading_order(make_pdf):
+    path = make_pdf(num_pages=8)
+    src = fitz.open(path)
+    params = ImpositionParams(signature_size_pages=8, margin_pt=10, gutter_pt=10)
+    imposed = impose(src, params)
+
+    preview = build_bound_preview(imposed, src_page_count=8, params=params)
+
+    assert preview.page_count == 8
+    for i in range(8):
+        assert f"Page {i + 1}" in preview[i].get_text()
+
+
+def test_compute_stats_reports_signatures_and_padding():
+    stats = compute_stats(page_count=20, params=ImpositionParams(signature_size_pages=8))
+    assert stats.source_page_count == 20
+    assert stats.signature_size_pages == 8
+    assert stats.signature_count == 3
+    assert stats.blank_pages_added == 4
+    assert stats.sheet_side_count == 12
+    assert stats.physical_sheet_count == 6
+
+
+def test_compute_stats_no_padding_needed():
+    stats = compute_stats(page_count=16, params=ImpositionParams(signature_size_pages=8))
+    assert stats.signature_count == 2
+    assert stats.blank_pages_added == 0
+    assert stats.sheet_side_count == 8
+    assert stats.physical_sheet_count == 4
+
+
+def test_compute_stats_empty_document():
+    stats = compute_stats(page_count=0, params=ImpositionParams())
+    assert stats.source_page_count == 0
+    assert stats.signature_count == 0
+    assert stats.sheet_side_count == 0

@@ -1,4 +1,6 @@
-"""Main application window: menu, Source/Imposed tabs, and imposition settings."""
+"""Main application window: menu, Source/Imposed/Bound Preview tabs, and
+imposition settings.
+"""
 
 from __future__ import annotations
 
@@ -13,7 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from bookwork.imposition import ImpositionParams, impose
+from bookwork.imposition import ImpositionParams, build_bound_preview, compute_stats, impose
 from bookwork.pdf_document import PdfDocument
 from bookwork.widgets.imposition_panel import ImpositionPanel
 from bookwork.widgets.pdf_viewer_pane import PdfViewerPane
@@ -27,19 +29,23 @@ class MainWindow(QMainWindow):
 
         self._source_pane = PdfViewerPane()
         self._imposed_pane = PdfViewerPane()
+        self._bound_preview_pane = PdfViewerPane()
         self._imposition_panel = ImpositionPanel()
         self._imposition_panel.params_changed.connect(self._regenerate_imposed)
+
+        self._panes = [self._source_pane, self._imposed_pane, self._bound_preview_pane]
 
         self._tabs = QTabWidget()
         self._tabs.addTab(self._source_pane, "Source")
         self._tabs.addTab(self._make_imposed_tab(), "Imposed")
+        self._tabs.addTab(self._bound_preview_pane, "Bound Preview")
         self._tabs.currentChanged.connect(lambda _index: self._update_actions_enabled())
         self.setCentralWidget(self._tabs)
 
         self.setStatusBar(QStatusBar())
 
-        self._source_pane.page_changed.connect(self._on_page_changed)
-        self._imposed_pane.page_changed.connect(self._on_page_changed)
+        for pane in self._panes:
+            pane.page_changed.connect(self._on_page_changed)
 
         self._build_menu()
         self._update_actions_enabled()
@@ -92,18 +98,25 @@ class MainWindow(QMainWindow):
     def _regenerate_imposed(self, params: ImpositionParams) -> None:
         if self._source_pane.document is None:
             return
+        source_doc = self._source_pane.document.fitz_document
         try:
-            imposed_doc = impose(self._source_pane.document.fitz_document, params)
+            imposed_doc = impose(source_doc, params)
         except ValueError as exc:
             QMessageBox.warning(self, "Invalid imposition settings", str(exc))
             return
-        self._imposed_pane.load_document(
-            PdfDocument.from_fitz_document(imposed_doc, "imposed.pdf")
+
+        self._imposed_pane.load_document(PdfDocument.from_fitz_document(imposed_doc, "imposed.pdf"))
+
+        bound_doc = build_bound_preview(imposed_doc, source_doc.page_count, params)
+        self._bound_preview_pane.load_document(
+            PdfDocument.from_fitz_document(bound_doc, "bound-preview.pdf")
         )
+
+        self._imposition_panel.set_stats(compute_stats(source_doc.page_count, params))
         self._update_actions_enabled()
 
     def _current_pane(self) -> PdfViewerPane:
-        return self._source_pane if self._tabs.currentIndex() == 0 else self._imposed_pane
+        return self._panes[self._tabs.currentIndex()]
 
     def _go_previous(self) -> None:
         self._current_pane().go_previous()
@@ -125,6 +138,6 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Page {pane.current_page + 1} of {pane.document.page_count}")
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        self._source_pane.clear()
-        self._imposed_pane.clear()
+        for pane in self._panes:
+            pane.clear()
         super().closeEvent(event)

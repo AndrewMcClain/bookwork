@@ -105,3 +105,44 @@ def test_active_tab_determines_navigation_target(qtbot, make_pdf):
     window._go_next()
     assert window._imposed_pane.current_page == 1
     assert window._source_pane.current_page == 0
+
+
+def test_opening_pdf_also_populates_bound_preview_tab_in_reading_order(qtbot, make_pdf):
+    path = make_pdf(num_pages=8)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._imposition_panel._signature_size.setValue(8)
+
+    window.open_pdf(str(path))
+
+    assert window._bound_preview_pane.document is not None
+    assert window._bound_preview_pane.document.page_count == 8
+    for i in range(8):
+        text = window._bound_preview_pane.document.fitz_document[i].get_text()
+        assert f"Page {i + 1}" in text
+
+
+def test_bound_preview_tab_is_third_tab_and_navigable(qtbot, make_pdf):
+    path = make_pdf(num_pages=8)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_pdf(str(path))
+
+    assert window._tabs.tabText(2) == "Bound Preview"
+    window._tabs.setCurrentIndex(2)
+    window._go_next()
+    assert window._bound_preview_pane.current_page == 1
+
+
+def test_imposition_panel_stats_reflect_opened_document(qtbot, make_pdf):
+    path = make_pdf(num_pages=20)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._imposition_panel._signature_size.setValue(8)
+
+    window.open_pdf(str(path))
+
+    stats_text = window._imposition_panel._stats_label.text()
+    assert "20" in stats_text  # source pages
+    assert "3" in stats_text  # signatures (20 pages / 8-page signatures -> 3)
+    assert "4" in stats_text  # blank pages added

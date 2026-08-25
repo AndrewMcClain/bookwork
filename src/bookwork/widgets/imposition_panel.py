@@ -1,22 +1,28 @@
 """Form panel for imposition parameters (signature size, sheet size, margin,
-gutter). Emits the current settings as an `ImpositionParams` when the user
-clicks Apply — deliberately not live-on-every-keystroke, so typing a new
-value doesn't trigger a re-impose on every digit.
+gutter, crop marks), plus a read-only summary of the resulting layout (number
+of signatures, blanks added, sheet count, ...). Emits the current settings as
+an `ImpositionParams` when the user clicks Apply — deliberately not
+live-on-every-keystroke, so typing a new value doesn't trigger a re-impose on
+every digit.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
+    QLabel,
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QVBoxLayout,
     QWidget,
 )
 
-from bookwork.imposition import ImpositionParams
+from bookwork.imposition import ImpositionParams, ImpositionStats
 
 _PT_PER_INCH = 72.0
 
@@ -42,16 +48,37 @@ class ImpositionPanel(QWidget):
         self._margin_in = self._make_inch_spinbox(initial.margin_pt)
         self._gutter_in = self._make_inch_spinbox(initial.gutter_pt)
 
+        self._show_crop_marks = QCheckBox("Show crop marks")
+        self._show_crop_marks.setChecked(initial.show_crop_marks)
+        self._show_crop_marks.setToolTip(
+            "Draw a small + at each cell corner: the outer two mark the trim\n"
+            "edge, the two on the spine side mark the fold line."
+        )
+
         self._apply_button = QPushButton("Apply")
         self._apply_button.clicked.connect(self.try_emit_params)
 
-        form = QFormLayout(self)
+        form = QFormLayout()
         form.addRow("Signature size (pages)", self._signature_size)
         form.addRow("Sheet width (in)", self._sheet_width_in)
         form.addRow("Sheet height (in)", self._sheet_height_in)
         form.addRow("Margin (in)", self._margin_in)
         form.addRow("Gutter (in)", self._gutter_in)
+        form.addRow(self._show_crop_marks)
         form.addRow(self._apply_button)
+
+        self._stats_label = QLabel("Open a PDF to see layout stats.")
+        self._stats_label.setWordWrap(True)
+
+        divider = QFrame()
+        divider.setFrameShape(QFrame.Shape.HLine)
+        divider.setFrameShadow(QFrame.Shadow.Sunken)
+
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(divider)
+        layout.addWidget(self._stats_label)
+        layout.addStretch(1)
 
     @staticmethod
     def _make_inch_spinbox(initial_pt: float) -> QDoubleSpinBox:
@@ -78,6 +105,7 @@ class ImpositionPanel(QWidget):
             sheet_height_pt=self._sheet_height_in.value() * _PT_PER_INCH,
             margin_pt=self._margin_in.value() * _PT_PER_INCH,
             gutter_pt=self._gutter_in.value() * _PT_PER_INCH,
+            show_crop_marks=self._show_crop_marks.isChecked(),
         )
 
     def try_emit_params(self) -> None:
@@ -87,3 +115,25 @@ class ImpositionPanel(QWidget):
             QMessageBox.warning(self, "Invalid imposition settings", str(exc))
             return
         self.params_changed.emit(params)
+
+    def set_stats(self, stats: ImpositionStats | None) -> None:
+        if stats is None or stats.source_page_count == 0:
+            self._stats_label.setText("Open a PDF to see layout stats.")
+            return
+
+        signature_desc = (
+            "single signature (whole document)"
+            if stats.signature_size_pages == 0
+            else f"{stats.signature_size_pages} pages/signature"
+        )
+        lines = [
+            f"<b>{stats.source_page_count}</b> source pages, {signature_desc}",
+            f"<b>{stats.signature_count}</b> signature(s)",
+        ]
+        if stats.blank_pages_added:
+            lines.append(f"<b>{stats.blank_pages_added}</b> blank page(s) added to pad the last signature")
+        lines.append(
+            f"<b>{stats.sheet_side_count}</b> sheet sides "
+            f"(<b>{stats.physical_sheet_count}</b> physical sheet(s) of paper, printed duplex)"
+        )
+        self._stats_label.setText("<br>".join(lines))
