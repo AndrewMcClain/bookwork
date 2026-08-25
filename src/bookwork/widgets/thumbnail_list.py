@@ -1,23 +1,31 @@
 """Sidebar list of page thumbnails, for jumping to a page.
 
-v0 scope: display thumbnails and emit which page was clicked. Later
-milestones (page insert/delete, v2) will add a context menu here rather
-than replacing this widget.
+Reused for all three viewer tabs (Source, Imposed, Bound Preview), but only
+the Source tab's list is editable (see `set_editable`) — the other two are
+regenerated output, not something a user inserts/deletes pages in directly.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QIcon, QImage, QPixmap
-from PySide6.QtWidgets import QListWidget, QListWidgetItem
+from PySide6.QtWidgets import QListWidget, QListWidgetItem, QMenu
 
 _THUMB_ICON_SIZE = QSize(96, 128)
 
 
 class ThumbnailList(QListWidget):
-    """Emits `page_selected(index)` (0-based) when the user picks a page."""
+    """Emits `page_selected(index)` (0-based) when the user picks a page.
+
+    When editable (see `set_editable`), also emits `insert_before_requested`,
+    `insert_after_requested`, and `delete_requested` (all `int`, 0-based)
+    from a right-click context menu on a thumbnail.
+    """
 
     page_selected = Signal(int)
+    insert_before_requested = Signal(int)
+    insert_after_requested = Signal(int)
+    delete_requested = Signal(int)
 
     def __init__(self) -> None:
         super().__init__()
@@ -28,6 +36,20 @@ class ThumbnailList(QListWidget):
         self.setMovement(QListWidget.Movement.Static)
         self.setFixedWidth(_THUMB_ICON_SIZE.width() + 40)
         self.currentRowChanged.connect(self._on_row_changed)
+        self._editable = False
+        self._context_menu_connected = False
+
+    def set_editable(self, editable: bool) -> None:
+        self._editable = editable
+        self.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu if editable else Qt.ContextMenuPolicy.DefaultContextMenu
+        )
+        if editable and not self._context_menu_connected:
+            self.customContextMenuRequested.connect(self._show_context_menu)
+            self._context_menu_connected = True
+        elif not editable and self._context_menu_connected:
+            self.customContextMenuRequested.disconnect(self._show_context_menu)
+            self._context_menu_connected = False
 
     def set_thumbnails(self, images: list[QImage]) -> None:
         self.clear()
@@ -43,3 +65,23 @@ class ThumbnailList(QListWidget):
     def _on_row_changed(self, row: int) -> None:
         if row >= 0:
             self.page_selected.emit(row)
+
+    def _show_context_menu(self, pos) -> None:
+        item = self.itemAt(pos)
+        if item is None:
+            return
+        index = self.row(item)
+
+        menu = QMenu(self)
+        insert_before_action = menu.addAction("Insert Blank Page Before")
+        insert_after_action = menu.addAction("Insert Blank Page After")
+        menu.addSeparator()
+        delete_action = menu.addAction("Delete Page")
+
+        chosen = menu.exec(self.mapToGlobal(pos))
+        if chosen is insert_before_action:
+            self.insert_before_requested.emit(index)
+        elif chosen is insert_after_action:
+            self.insert_after_requested.emit(index)
+        elif chosen is delete_action:
+            self.delete_requested.emit(index)

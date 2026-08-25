@@ -50,8 +50,24 @@ class PdfViewerPane(QWidget):
         self.thumbnail_list.set_thumbnails(thumbnails)
         self.show_page(0)
 
+    def refresh(self) -> None:
+        """Re-render thumbnails and the current page from `self.document`,
+        which was just mutated in place (insert/delete/undo/redo) rather
+        than replaced. Unlike `load_document`, this doesn't touch the
+        document's own undo/redo state or close/replace it."""
+        if self.document is None:
+            return
+        thumbnails = [self.document.render_thumbnail(i) for i in range(self.document.page_count)]
+        self.thumbnail_list.set_thumbnails(thumbnails)
+        self.show_page(self.current_page)
+
     def show_page(self, index: int) -> None:
         if self.document is None:
+            return
+        if self.document.page_count == 0:
+            self.current_page = 0
+            self.page_view.clear()
+            self.page_changed.emit(0, 0)
             return
         index = max(0, min(index, self.document.page_count - 1))
         self.current_page = index

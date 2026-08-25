@@ -1,9 +1,10 @@
 # Bookwork — Design Doc
 
 Status: **draft / living document** — updated as decisions get made.
-Last updated: 2026-08-25 — v1 done: native imposition pipeline + Imposed tab;
-corrected `psbook -s` unit (pages, not sheets) per §2.1 after testing against
-real `psbook`
+Last updated: 2026-08-25 — v2 done: interactive page insert/delete with
+undo/redo on the Source tab, live-regenerating Imposed/Bound Preview.
+(v1: native imposition pipeline + Imposed tab; corrected `psbook -s` unit
+(pages, not sheets) per §2.1 after testing against real `psbook`.)
 
 ## 1. Vision
 
@@ -236,10 +237,11 @@ padding/correction is explicitly out of scope until there's a viewer to judge it
    in the same viewer from v0, alongside or instead of the source. No editing yet —
    this milestone is about the pipeline being correct and visible, verified against
    §8's known-good manual output and a labeled test PDF for gutter direction.
-3. **v2 — Editing page count**: add interactive insert/delete of blank pages
-   (§3.2) with live renumbering and undo/redo, feeding straight into the v1
-   imposition view so the user can add/remove a page and immediately see the
-   effect on signature layout — this is the primary tool for catching
+3. **v2 — Editing page count**: add interactive insert of blank pages and
+   delete of *any* page — blank or real content, to fix a miscount or drop
+   an unwanted scanned page (§3.2) — with live renumbering and undo/redo,
+   feeding straight into the v1 imposition view so the user can add/remove a
+   page and immediately see the effect on signature layout — this is the primary tool for catching
    off-by-one/pagination issues before printing.
 4. **v3 — Print integration**: in-app print via `QPrinter`, saved presets per
    paper size / signature size / printer; first packaged builds (PyInstaller/

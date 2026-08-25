@@ -47,6 +47,17 @@ class MainWindow(QMainWindow):
         for pane in self._panes:
             pane.page_changed.connect(self._on_page_changed)
 
+        # Only the Source tab's pages can be edited — Imposed/Bound Preview
+        # are always regenerated output.
+        self._source_pane.thumbnail_list.set_editable(True)
+        self._source_pane.thumbnail_list.insert_before_requested.connect(
+            lambda index: self._insert_blank_page(index)
+        )
+        self._source_pane.thumbnail_list.insert_after_requested.connect(
+            lambda index: self._insert_blank_page(index + 1)
+        )
+        self._source_pane.thumbnail_list.delete_requested.connect(self._delete_page)
+
         self._build_menu()
         self._update_actions_enabled()
 
@@ -66,6 +77,18 @@ class MainWindow(QMainWindow):
         open_action.triggered.connect(self._open_file_dialog)
         file_menu.addAction(open_action)
         self._open_action = open_action
+
+        edit_menu = self.menuBar().addMenu("&Edit")
+
+        self._undo_action = QAction("&Undo", self)
+        self._undo_action.setShortcut(QKeySequence.StandardKey.Undo)
+        self._undo_action.triggered.connect(self._undo)
+        edit_menu.addAction(self._undo_action)
+
+        self._redo_action = QAction("&Redo", self)
+        self._redo_action.setShortcut(QKeySequence.StandardKey.Redo)
+        self._redo_action.triggered.connect(self._redo)
+        edit_menu.addAction(self._redo_action)
 
         view_menu = self.menuBar().addMenu("&View")
 
@@ -115,6 +138,42 @@ class MainWindow(QMainWindow):
         self._imposition_panel.set_stats(compute_stats(source_doc.page_count, params))
         self._update_actions_enabled()
 
+    def _insert_blank_page(self, index: int) -> None:
+        document = self._source_pane.document
+        if document is None:
+            return
+        document.insert_blank_page(index)
+        self._source_pane.refresh()
+        self._source_pane.show_page(index)
+        self._regenerate_imposed(self._imposition_panel.current_params())
+
+    def _delete_page(self, index: int) -> None:
+        document = self._source_pane.document
+        if document is None:
+            return
+        if document.page_count <= 1:
+            QMessageBox.warning(self, "Cannot delete page", "A document must have at least one page.")
+            return
+        document.delete_page(index)
+        self._source_pane.refresh()
+        self._regenerate_imposed(self._imposition_panel.current_params())
+
+    def _undo(self) -> None:
+        document = self._source_pane.document
+        if document is None or not document.can_undo():
+            return
+        document.undo()
+        self._source_pane.refresh()
+        self._regenerate_imposed(self._imposition_panel.current_params())
+
+    def _redo(self) -> None:
+        document = self._source_pane.document
+        if document is None or not document.can_redo():
+            return
+        document.redo()
+        self._source_pane.refresh()
+        self._regenerate_imposed(self._imposition_panel.current_params())
+
     def _current_pane(self) -> PdfViewerPane:
         return self._panes[self._tabs.currentIndex()]
 
@@ -136,6 +195,10 @@ class MainWindow(QMainWindow):
         self._next_action.setEnabled(pane.has_next())
         if pane.document is not None:
             self.statusBar().showMessage(f"Page {pane.current_page + 1} of {pane.document.page_count}")
+
+        source_document = self._source_pane.document
+        self._undo_action.setEnabled(source_document is not None and source_document.can_undo())
+        self._redo_action.setEnabled(source_document is not None and source_document.can_redo())
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt override)
         for pane in self._panes:

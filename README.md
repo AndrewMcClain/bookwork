@@ -5,8 +5,8 @@ A cross-platform (Windows/macOS/Linux) desktop tool for
 printing: view a PDF, reorder and arrange pages 2-up per sheet, and produce a
 print-ready file. See [DESIGN.md](DESIGN.md) for the project's design doc and roadmap.
 
-**Status:** early development — milestone v1 (native imposition pipeline,
-Source/Imposed/Bound Preview viewer tabs, layout stats, crop marks) done.
+**Status:** early development — milestone v2 (interactive page insert/delete
+with undo/redo, live-regenerating the Imposed/Bound Preview tabs) done.
 
 ## Requirements
 
@@ -48,10 +48,18 @@ src/bookwork/
   widgets/
     pdf_viewer_pane.py    # thumbnail sidebar + page view, reused per tab
     page_view.py          # single-page display, scaled to fit
-    thumbnail_list.py     # page thumbnail sidebar
+    thumbnail_list.py     # page thumbnail sidebar; editable on the Source tab
     imposition_panel.py   # signature/sheet/margin/gutter form + layout stats
 tests/
 ```
+
+**Editing pages**: right-click a thumbnail on the Source tab to insert a
+blank page before/after it, or delete it (blank or real content — e.g. to
+drop a bad scan or fix a miscount). Undo/redo (Ctrl+Z / Ctrl+Shift+Z, or the
+Edit menu) covers all of it. Every edit immediately regenerates the
+Imposed and Bound Preview tabs, so you see the effect on signature layout
+and pagination right away — this is the main tool for catching an
+off-by-one before it costs you a print.
 
 The **Bound Preview** tab simulates actually flipping through the bound book:
 single-page views for the front/back cover, two-page spreads (with a spine

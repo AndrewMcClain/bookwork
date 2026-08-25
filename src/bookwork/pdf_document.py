@@ -30,6 +30,8 @@ class PdfDocument:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self._doc = fitz.open(self.path)
+        self._undo_stack: list[bytes] = []
+        self._redo_stack: list[bytes] = []
 
     @classmethod
     def from_fitz_document(cls, doc: fitz.Document, display_name: str) -> "PdfDocument":
@@ -38,6 +40,8 @@ class PdfDocument:
         instance = cls.__new__(cls)
         instance.path = Path(display_name)
         instance._doc = doc
+        instance._undo_stack = []
+        instance._redo_stack = []
         return instance
 
     @property
@@ -60,6 +64,62 @@ class PdfDocument:
     def render_thumbnail(self, index: int, dpi: int = THUMBNAIL_DPI) -> QImage:
         """Render a small preview of page `index`, for a thumbnail strip."""
         return self.render_page(index, dpi=dpi)
+
+    # --- Editing (insert/delete pages) and undo/redo ---
+    #
+    # Edits happen in memory only (the file on disk is never touched here —
+    # see DESIGN.md §3.2). Undo/redo works by snapshotting the whole document
+    # as bytes before each edit rather than trying to record/invert
+    # individual page operations: simpler and safer to get right, at the
+    # cost of an extra full-document copy per edit, which is fine at the
+    # document sizes this tool targets.
+
+    def insert_blank_page(self, index: int) -> None:
+        """Insert a blank page so it becomes page `index` (0-based) —
+        anything currently at `index` and after shifts later. The new
+        page's size matches the page it's being inserted next to, so it
+        doesn't look mismatched among otherwise-uniform pages."""
+        self._push_undo()
+        width, height = self._size_for_new_page_at(index)
+        self._doc.insert_page(index, width=width, height=height)
+
+    def delete_page(self, index: int) -> None:
+        """Delete page `index` (0-based) — blank or real content."""
+        self._push_undo()
+        self._doc.delete_page(index)
+
+    def _size_for_new_page_at(self, index: int) -> tuple[float, float]:
+        if self.page_count == 0:
+            return 612.0, 792.0  # US Letter, portrait
+        reference_index = max(0, min(index, self.page_count - 1))
+        rect = self._doc[reference_index].rect
+        return rect.width, rect.height
+
+    def can_undo(self) -> bool:
+        return bool(self._undo_stack)
+
+    def can_redo(self) -> bool:
+        return bool(self._redo_stack)
+
+    def undo(self) -> None:
+        if not self._undo_stack:
+            return
+        self._redo_stack.append(self._doc.tobytes())
+        self._load_from_bytes(self._undo_stack.pop())
+
+    def redo(self) -> None:
+        if not self._redo_stack:
+            return
+        self._undo_stack.append(self._doc.tobytes())
+        self._load_from_bytes(self._redo_stack.pop())
+
+    def _push_undo(self) -> None:
+        self._undo_stack.append(self._doc.tobytes())
+        self._redo_stack.clear()
+
+    def _load_from_bytes(self, data: bytes) -> None:
+        self._doc.close()
+        self._doc = fitz.open(stream=data, filetype="pdf")
 
     def close(self) -> None:
         self._doc.close()
