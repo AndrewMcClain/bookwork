@@ -5,7 +5,9 @@ imposition settings.
 from __future__ import annotations
 
 from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QMainWindow,
@@ -17,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from bookwork.imposition import ImpositionParams, build_bound_preview, compute_stats, impose
 from bookwork.pdf_document import PdfDocument
+from bookwork.printing import DEFAULT_DUPLEX_MODE, configure_printer_for_sheet_size, print_document
 from bookwork.widgets.imposition_panel import ImpositionPanel
 from bookwork.widgets.pdf_viewer_pane import PdfViewerPane
 
@@ -32,6 +35,10 @@ class MainWindow(QMainWindow):
         self._bound_preview_pane = PdfViewerPane()
         self._imposition_panel = ImpositionPanel()
         self._imposition_panel.params_changed.connect(self._regenerate_imposed)
+        # The params that actually produced the current Imposed document —
+        # used at print time for sheet size, independent of whatever the
+        # panel's fields currently show (which might have unapplied edits).
+        self._current_imposition_params: ImpositionParams | None = None
 
         self._panes = [self._source_pane, self._imposed_pane, self._bound_preview_pane]
 
@@ -77,6 +84,11 @@ class MainWindow(QMainWindow):
         open_action.triggered.connect(self._open_file_dialog)
         file_menu.addAction(open_action)
         self._open_action = open_action
+
+        self._print_action = QAction("&Print Imposed...", self)
+        self._print_action.setShortcut(QKeySequence.StandardKey.Print)
+        self._print_action.triggered.connect(self._print_imposed)
+        file_menu.addAction(self._print_action)
 
         edit_menu = self.menuBar().addMenu("&Edit")
 
@@ -136,7 +148,32 @@ class MainWindow(QMainWindow):
         )
 
         self._imposition_panel.set_stats(compute_stats(source_doc.page_count, params))
+        self._current_imposition_params = params
         self._update_actions_enabled()
+
+    def _print_imposed(self) -> None:
+        document = self._imposed_pane.document
+        if document is None or document.page_count == 0:
+            QMessageBox.information(self, "Nothing to print", "Open a PDF and impose it first.")
+            return
+        params = self._current_imposition_params or self._imposition_panel.current_params()
+
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        configure_printer_for_sheet_size(printer, params.sheet_width_pt, params.sheet_height_pt)
+        printer.setDuplex(DEFAULT_DUPLEX_MODE)
+        printer.setFromTo(1, document.page_count)
+        if self._source_pane.document is not None:
+            printer.setDocName(self._source_pane.document.path.stem)
+
+        dialog = QPrintDialog(printer, self)
+        dialog.setWindowTitle("Print Imposed Pages")
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        try:
+            print_document(document, printer)
+        except RuntimeError as exc:
+            QMessageBox.critical(self, "Print failed", str(exc))
 
     def _insert_blank_page(self, index: int) -> None:
         document = self._source_pane.document
@@ -199,6 +236,9 @@ class MainWindow(QMainWindow):
         source_document = self._source_pane.document
         self._undo_action.setEnabled(source_document is not None and source_document.can_undo())
         self._redo_action.setEnabled(source_document is not None and source_document.can_redo())
+
+        imposed_document = self._imposed_pane.document
+        self._print_action.setEnabled(imposed_document is not None and imposed_document.page_count > 0)
 
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt override)
         for pane in self._panes:

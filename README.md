@@ -5,8 +5,8 @@ A cross-platform (Windows/macOS/Linux) desktop tool for
 printing: view a PDF, reorder and arrange pages 2-up per sheet, and produce a
 print-ready file. See [DESIGN.md](DESIGN.md) for the project's design doc and roadmap.
 
-**Status:** early development — milestone v2 (interactive page insert/delete
-with undo/redo, live-regenerating the Imposed/Bound Preview tabs) done.
+**Status:** early development — milestone v3 in progress (print integration
+and saved presets done; packaged builds next).
 
 ## Requirements
 
@@ -45,11 +45,13 @@ src/bookwork/
   pdf_document.py     # PyMuPDF wrapper (all `pymupdf` usage lives here)
   imposition.py       # signature order, 2-up placement, crop marks, bound
                        # preview, layout stats (no shell tools)
+  printing.py         # renders an imposed PdfDocument onto a QPrinter
+  presets.py           # named ImpositionParams presets, via QSettings
   widgets/
     pdf_viewer_pane.py    # thumbnail sidebar + page view, reused per tab
     page_view.py          # single-page display, scaled to fit
     thumbnail_list.py     # page thumbnail sidebar; editable on the Source tab
-    imposition_panel.py   # signature/sheet/margin/gutter form + layout stats
+    imposition_panel.py   # signature/sheet/margin/gutter form, presets, stats
 tests/
 ```
 
@@ -86,6 +88,22 @@ signature(s) as usual. This is the standard structure for a saddle-stitch
 booklet printed with heavier cover stock. Mutually exclusive with the
 endpapers option (the UI unchecks one when you check the other) — a case
 binding's cover *is* the case, it doesn't also get a wrap folio.
+
+**Printing**: File → Print Imposed... (Ctrl+P) opens the system print dialog
+pre-configured for the imposed sheet's exact size and duplex mode (short-edge
+by default, matching this project's fold orientation), and full-bleed —
+without this, the printer driver's own default margins would clip crop marks
+and push content off-position. It always prints the Imposed tab's output,
+regardless of which tab is currently active.
+
+**Presets**: the Preset dropdown at the top of the Imposed tab's settings
+panel saves and recalls a full set of imposition settings (signature size,
+sheet size, margin, gutter, crop marks, endpapers/cover mode) under a name
+you choose. Presets persist across runs in the OS's native settings store
+(registry / plist / ini, via `QSettings`) and are shared by every document
+you open — save one once (e.g. "Digest booklet"), and it stays available.
+Picking a preset applies it immediately, unlike other field edits which wait
+for Apply.
 
 ## Known follow-ups
 

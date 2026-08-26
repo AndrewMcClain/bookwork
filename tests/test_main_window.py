@@ -1,3 +1,5 @@
+from PySide6.QtWidgets import QDialog
+
 from bookwork.main_window import MainWindow
 
 
@@ -292,3 +294,114 @@ def test_separate_cover_and_endpapers_checkboxes_are_mutually_exclusive(qtbot):
     panel._include_endpapers.setChecked(True)
     assert panel._include_endpapers.isChecked()
     assert not panel._separate_cover.isChecked()  # turned off automatically
+
+
+def test_print_action_disabled_without_a_document(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    assert not window._print_action.isEnabled()
+
+
+def test_print_action_enabled_after_opening_a_pdf(qtbot, make_pdf):
+    path = make_pdf(num_pages=4)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_pdf(str(path))
+    assert window._print_action.isEnabled()
+
+
+def test_print_imposed_does_nothing_without_a_document(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    informed = []
+    monkeypatch.setattr(
+        "bookwork.main_window.QMessageBox.information",
+        lambda *args, **kwargs: informed.append(args),
+    )
+
+    window._print_imposed()
+
+    assert len(informed) == 1
+
+
+def test_print_imposed_does_not_print_when_dialog_is_cancelled(qtbot, make_pdf, monkeypatch):
+    # Never actually pop a real print dialog or send a job to a real
+    # printer in a test -- simulate the user clicking Cancel.
+    path = make_pdf(num_pages=4)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_pdf(str(path))
+
+    printed = []
+    monkeypatch.setattr("bookwork.main_window.print_document", lambda *args, **kwargs: printed.append(args))
+    monkeypatch.setattr(
+        "bookwork.main_window.QPrintDialog.exec",
+        lambda self: QDialog.DialogCode.Rejected,
+    )
+
+    window._print_imposed()
+
+    assert printed == []
+
+
+def test_print_imposed_calls_print_document_when_dialog_is_accepted(qtbot, make_pdf, monkeypatch):
+    path = make_pdf(num_pages=4)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_pdf(str(path))
+
+    printed = []
+    monkeypatch.setattr("bookwork.main_window.print_document", lambda doc, printer: printed.append(doc))
+    monkeypatch.setattr(
+        "bookwork.main_window.QPrintDialog.exec",
+        lambda self: QDialog.DialogCode.Accepted,
+    )
+
+    window._print_imposed()
+
+    assert printed == [window._imposed_pane.document]
+
+
+def test_saving_and_selecting_a_preset_applies_it(qtbot, make_pdf, monkeypatch):
+    path = make_pdf(num_pages=8)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_pdf(str(path))
+    panel = window._imposition_panel
+
+    panel._signature_size.setValue(4)
+    monkeypatch.setattr(
+        "bookwork.widgets.imposition_panel.QInputDialog.getText",
+        lambda *args, **kwargs: ("My Preset", True),
+    )
+    panel._save_current_as_preset()
+    assert panel._preset_combo.currentText() == "My Preset"
+
+    # Change the field away from the saved value, then re-select the preset.
+    panel._signature_size.setValue(20)
+    index = panel._preset_combo.findText("My Preset")
+    panel._preset_combo.setCurrentIndex(index)
+    panel._on_preset_selected(index)
+
+    assert panel._signature_size.value() == 4
+    # Selecting a preset applies it immediately (not gated behind Apply).
+    assert window._imposed_pane.document.page_count == 4  # 8 pages / 4-page signatures -> 4 sheet sides
+
+
+def test_deleting_a_preset_removes_it_from_the_combo(qtbot, monkeypatch):
+    from bookwork.widgets.imposition_panel import ImpositionPanel
+
+    panel = ImpositionPanel()
+    qtbot.addWidget(panel)
+
+    monkeypatch.setattr(
+        "bookwork.widgets.imposition_panel.QInputDialog.getText",
+        lambda *args, **kwargs: ("Temp", True),
+    )
+    panel._save_current_as_preset()
+    assert panel._preset_combo.findText("Temp") >= 0
+
+    panel._delete_selected_preset()
+
+    assert panel._preset_combo.findText("Temp") == -1

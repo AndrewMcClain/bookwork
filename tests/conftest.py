@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pymupdf as fitz
 import pytest
+from PySide6.QtCore import QSettings
 
 
 @pytest.fixture
@@ -26,3 +27,18 @@ def make_pdf(tmp_path: Path):
         return out_path
 
     return _make
+
+
+@pytest.fixture(autouse=True)
+def isolated_qsettings(tmp_path, monkeypatch):
+    """Never let any test read or write the real, persistent user settings
+    store (where saved presets live) — redirect `ImpositionPanel`'s default
+    to an isolated ini file per test instead. Applies automatically; no test
+    needs to request it, and code that explicitly passes its own `settings=`
+    (see tests/test_presets.py) is unaffected.
+    """
+    settings_path = str(tmp_path / "bookwork_test_settings.ini")
+    monkeypatch.setattr(
+        "bookwork.widgets.imposition_panel.default_settings",
+        lambda: QSettings(settings_path, QSettings.Format.IniFormat),
+    )
