@@ -72,8 +72,10 @@ class ImpositionPanel(QWidget):
 
         self._show_crop_marks = QCheckBox("Show crop marks")
         self._show_crop_marks.setToolTip(
-            "Draw a small + at each cell corner: the outer two mark the trim\n"
-            "edge, the two on the spine side mark the fold line."
+            "Draw a small L-shaped tick at each corner of the placed page,\n"
+            "marking where to trim the sheet down to. Both arms point away\n"
+            "from the page, so cutting along them leaves no ink behind on\n"
+            "the finished page."
         )
 
         self._include_endpapers = QCheckBox("Add blank endpapers (case binding)")

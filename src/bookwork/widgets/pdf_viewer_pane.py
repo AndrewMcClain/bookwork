@@ -46,8 +46,7 @@ class PdfViewerPane(QWidget):
         self.document = document
         self.current_page = 0
 
-        thumbnails = [document.render_thumbnail(i) for i in range(document.page_count)]
-        self.thumbnail_list.set_thumbnails(thumbnails)
+        self._rebuild_thumbnails()
         self.show_page(0)
 
     def refresh(self) -> None:
@@ -57,9 +56,19 @@ class PdfViewerPane(QWidget):
         document's own undo/redo state or close/replace it."""
         if self.document is None:
             return
-        thumbnails = [self.document.render_thumbnail(i) for i in range(self.document.page_count)]
-        self.thumbnail_list.set_thumbnails(thumbnails)
+        self._rebuild_thumbnails()
         self.show_page(self.current_page)
+
+    def _rebuild_thumbnails(self) -> None:
+        """Re-render the whole thumbnail strip from `self.document`. Shared
+        by `load_document` and `refresh` so both always render thumbnails
+        the same way — a change made to only one of them would leave pages
+        looking different after an edit than they did on open."""
+        if self.document is None:
+            return
+        self.thumbnail_list.set_thumbnails(
+            [self.document.render_thumbnail(i) for i in range(self.document.page_count)]
+        )
 
     def show_page(self, index: int) -> None:
         if self.document is None:

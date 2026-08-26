@@ -98,6 +98,58 @@ def test_invalid_imposition_params_shows_warning_and_keeps_prior_view(qtbot, mak
     assert window._imposed_pane.document is prior_document  # unchanged
 
 
+def test_editing_pages_with_invalid_unapplied_params_warns_instead_of_going_stale(
+    qtbot, make_pdf, monkeypatch
+):
+    """Editing a page re-imposes using the panel's *current* fields, which
+    may hold a value the widgets accept but ImpositionParams rejects (the
+    spinbox allows 6; only multiples of 4 are valid). That must surface as a
+    warning, not escape the Qt slot — which used to abort the callback after
+    the page edit had already landed, leaving Imposed/Bound Preview silently
+    showing the pre-edit layout with nothing reported to the user.
+    """
+    path = make_pdf(num_pages=9)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._imposition_panel._signature_size.setValue(4)
+    window.open_pdf(str(path))
+    assert window._imposed_pane.document.page_count == 6  # 9 pages -> [4,4,4] -> 6 sheet sides
+
+    warnings = []
+    monkeypatch.setattr(
+        "bookwork.main_window.QMessageBox.warning",
+        lambda *args, **kwargs: warnings.append(args),
+    )
+
+    window._imposition_panel._signature_size.setValue(6)  # invalid, never applied
+    window._source_pane.thumbnail_list.delete_requested.emit(0)
+
+    assert window._source_pane.document.page_count == 8  # the edit itself still happened
+    assert len(warnings) == 1  # ...and the user was told why the view didn't update
+
+
+def test_every_page_edit_path_routes_through_the_guarded_reimpose(qtbot, make_pdf, monkeypatch):
+    """The guard only helps if every edit path uses it. Each of these
+    mutates the source and must re-impose through `_reimpose_from_panel`
+    rather than calling `current_params()` unguarded itself.
+    """
+    path = make_pdf(num_pages=4)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_pdf(str(path))
+
+    calls = []
+    monkeypatch.setattr(window, "_reimpose_from_panel", lambda: calls.append(True))
+
+    window._source_pane.thumbnail_list.insert_before_requested.emit(0)
+    window._source_pane.thumbnail_list.insert_after_requested.emit(0)
+    window._source_pane.thumbnail_list.delete_requested.emit(0)
+    window._undo()
+    window._redo()
+
+    assert len(calls) == 5
+
+
 def test_active_tab_determines_navigation_target(qtbot, make_pdf):
     path = make_pdf(num_pages=16)
     window = MainWindow()

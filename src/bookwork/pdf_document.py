@@ -28,21 +28,31 @@ class PdfDocument:
     """
 
     def __init__(self, path: str | Path) -> None:
-        self.path = Path(path)
-        self._doc = fitz.open(self.path)
-        self._undo_stack: list[bytes] = []
-        self._redo_stack: list[bytes] = []
+        self._adopt(fitz.open(Path(path)), Path(path))
 
     @classmethod
     def from_fitz_document(cls, doc: fitz.Document, display_name: str) -> "PdfDocument":
         """Wrap an already-open, in-memory `fitz.Document` (e.g. imposition
         output) that has no path of its own on disk."""
         instance = cls.__new__(cls)
-        instance.path = Path(display_name)
-        instance._doc = doc
-        instance._undo_stack = []
-        instance._redo_stack = []
+        instance._adopt(doc, Path(display_name))
         return instance
+
+    def _adopt(self, doc: fitz.Document, path: Path) -> None:
+        """The single place instance state is established.
+
+        `from_fitz_document` has to bypass `__init__` (it already holds an
+        open document, and `__init__`'s job is to open one from a path), so
+        both constructors funnel through here instead of each setting the
+        fields up themselves — otherwise a field added to one is silently
+        missing on documents built by the other, which is every Imposed and
+        Bound Preview document, surfacing only as an AttributeError from
+        whatever code later touches it.
+        """
+        self.path = path
+        self._doc = doc
+        self._undo_stack: list[bytes] = []
+        self._redo_stack: list[bytes] = []
 
     @property
     def page_count(self) -> int:

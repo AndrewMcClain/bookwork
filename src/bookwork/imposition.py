@@ -220,36 +220,129 @@ def build_cover_order(first_index: int, last_index: int) -> list[int | None]:
     return [last_index, first_index, None, None]
 
 
-def _separate_cover_order(
-    page_count: int, signature_size_pages: int, *, pad_last_signature_to_full: bool = False
-) -> list[int | None]:
-    """Physical order for the whole document in `separate_cover` mode: a
-    fixed 4-slot cover folio (see `build_cover_order`), followed by the
-    interior (everything but the first/last page) imposed into its own
-    signature(s), with the interior itself getting a leading/trailing blank
-    (the inside-cover blanks — reusing the exact mechanism `include_endpapers`
-    uses for hardcover endpapers, since the shape is identical).
+#: A wrap cover folio is always exactly one physical sheet — 4 page slots
+#: (see `build_cover_order`), i.e. 2 sheet sides — sitting in front of the
+#: interior's own signature(s) in the imposed document.
+_COVER_SHEET_SIDES = 2
+
+
+@dataclass(frozen=True)
+class _SignatureLayout:
+    """`ImpositionParams` resolved against a source page count into the
+    concrete arguments every signature-order caller actually needs.
+
+    `impose`, `build_bound_preview`, and `compute_stats` all need this same
+    derivation. Single-sourcing it here is deliberate: if the `impose` and
+    `build_bound_preview` copies ever drifted, the Bound Preview tab would
+    show a different pagination than the sheets that actually print — which
+    is exactly the off-by-one class of mistake that tab exists to catch. It
+    also means a newly added `ImpositionParams` field reaches every caller
+    by editing one place rather than four.
     """
-    if page_count < 2:
-        raise ValueError("separate_cover requires at least 2 pages (front and back cover content)")
 
-    first_index, last_index = 0, page_count - 1
-    cover_order = build_cover_order(first_index, last_index)
+    #: Pages handed to `compute_signature_order`. In `separate_cover` mode
+    #: this is the *interior* only — the first and last source pages are
+    #: pulled out into the cover folio instead.
+    page_count: int
+    signature_size_pages: int
+    leading_blanks: int
+    trailing_blanks: int
+    pad_last_signature_to_full: bool
+    #: First/last source page form a wrap cover folio, prepended to the
+    #: interior's own signature(s). See `build_cover_order`.
+    separate_cover: bool
 
-    interior_count = page_count - 2
-    interior_relative_order = compute_signature_order(
-        interior_count,
-        signature_size_pages,
-        leading_blanks=1,
-        trailing_blanks=1,
-        pad_last_signature_to_full=pad_last_signature_to_full,
-    )
-    # interior_relative_order indexes into the interior alone (0-based from
-    # the second source page); shift back to real source indices.
-    interior_order: list[int | None] = [
-        (index + 1 if index is not None else None) for index in interior_relative_order
-    ]
-    return cover_order + interior_order
+    @classmethod
+    def resolve(cls, params: ImpositionParams, source_page_count: int) -> "_SignatureLayout":
+        if params.separate_cover:
+            return cls.for_separate_cover(
+                source_page_count, params.signature_size_pages, params.pad_last_signature_to_full
+            )
+        endpaper_count = 1 if params.include_endpapers else 0
+        return cls(
+            page_count=source_page_count,
+            signature_size_pages=params.signature_size_pages,
+            leading_blanks=endpaper_count,
+            trailing_blanks=endpaper_count,
+            pad_last_signature_to_full=params.pad_last_signature_to_full,
+            separate_cover=False,
+        )
+
+    @classmethod
+    def for_separate_cover(
+        cls, source_page_count: int, signature_size_pages: int, pad_last_signature_to_full: bool
+    ) -> "_SignatureLayout":
+        """The `separate_cover` rule in one place: the first and last source
+        pages become the cover folio, and the interior gets a leading and a
+        trailing blank of its own (the inside-cover blanks) — reusing the
+        exact mechanism `include_endpapers` uses for hardcover endpapers,
+        since the shape is identical.
+        """
+        if source_page_count < 2:
+            raise ValueError("separate_cover requires at least 2 pages (front and back cover content)")
+        return cls(
+            page_count=source_page_count - 2,
+            signature_size_pages=signature_size_pages,
+            leading_blanks=1,
+            trailing_blanks=1,
+            pad_last_signature_to_full=pad_last_signature_to_full,
+            separate_cover=True,
+        )
+
+    def chunk_sizes(self) -> list[int]:
+        """Page count of each signature the interior is split into."""
+        return _chunk_sizes(
+            self.leading_blanks + self.page_count + self.trailing_blanks,
+            self.signature_size_pages,
+            self.pad_last_signature_to_full,
+        )
+
+    def _interior_signature_order(self) -> list[int | None]:
+        return compute_signature_order(
+            self.page_count,
+            self.signature_size_pages,
+            leading_blanks=self.leading_blanks,
+            trailing_blanks=self.trailing_blanks,
+            pad_last_signature_to_full=self.pad_last_signature_to_full,
+        )
+
+    def physical_order(self) -> list[int | None]:
+        """Output position -> source page index (or `None` for a blank),
+        including the cover folio up front when `separate_cover`."""
+        interior_order = self._interior_signature_order()
+        if not self.separate_cover:
+            return interior_order
+        # interior_order indexes into the interior alone (0-based from the
+        # second source page); shift back to real source indices.
+        shifted: list[int | None] = [None if index is None else index + 1 for index in interior_order]
+        last_source_index = self.page_count + 1  # source_page_count - 1
+        return build_cover_order(0, last_source_index) + shifted
+
+    def reading_order(self) -> list[tuple[int, str] | None]:
+        """Reading-order slot -> `(sheet_index, side)`, or `None` for a
+        blank slot — the inverse of `physical_order`. See
+        `bound_reading_order`, which is this exposed as public API."""
+        order = self._interior_signature_order()
+        interior_mapping: list[tuple[int, str] | None] = [None] * len(order)
+        for physical_position, source_index in enumerate(order):
+            if source_index is not None:
+                reading_position = self.leading_blanks + source_index
+                side = "left" if physical_position % 2 == 0 else "right"
+                interior_mapping[reading_position] = (physical_position // 2, side)
+
+        if not self.separate_cover:
+            return interior_mapping
+
+        # Interior sheets follow the cover folio in the combined imposed
+        # document, so their sheet indices shift past it.
+        result: list[tuple[int, str] | None] = [None] * (len(interior_mapping) + 2)
+        result[0] = (0, "right")  # cover front: build_cover_order puts it at physical position 1
+        result[-1] = (0, "left")  # cover back: physical position 0
+        for local_index, entry in enumerate(interior_mapping):
+            if entry is not None:
+                sheet_index, side = entry
+                result[1 + local_index] = (sheet_index + _COVER_SHEET_SIDES, side)
+        return result
 
 
 def impose(src: fitz.Document, params: ImpositionParams | None = None) -> fitz.Document:
@@ -261,19 +354,7 @@ def impose(src: fitz.Document, params: ImpositionParams | None = None) -> fitz.D
     dropped, so pagination problems are visible (see DESIGN.md §3.2, §4.1).
     """
     params = params or ImpositionParams()
-    if params.separate_cover:
-        order = _separate_cover_order(
-            src.page_count, params.signature_size_pages, pad_last_signature_to_full=params.pad_last_signature_to_full
-        )
-    else:
-        endpaper_count = 1 if params.include_endpapers else 0
-        order = compute_signature_order(
-            src.page_count,
-            params.signature_size_pages,
-            leading_blanks=endpaper_count,
-            trailing_blanks=endpaper_count,
-            pad_last_signature_to_full=params.pad_last_signature_to_full,
-        )
+    order = _SignatureLayout.resolve(params, src.page_count).physical_order()
     return _build_sheets(src, order, params)
 
 
@@ -420,57 +501,23 @@ def bound_reading_order(
     instead builds the composite reading order for a wrap-cover book: cover
     front alone, then the interior's own reading order (which itself starts
     and ends with a blank — the inside-cover blanks), then cover back alone
-    — see `_separate_cover_order`/`ImpositionParams.separate_cover`.
+    — see `_SignatureLayout.for_separate_cover` and
+    `ImpositionParams.separate_cover`.
     """
     if separate_cover:
-        return _bound_reading_order_separate_cover(
-            page_count, signature_size_pages, pad_last_signature_to_full=pad_last_signature_to_full
+        layout = _SignatureLayout.for_separate_cover(
+            page_count, signature_size_pages, pad_last_signature_to_full
         )
-
-    order = compute_signature_order(
-        page_count,
-        signature_size_pages,
-        leading_blanks=leading_blanks,
-        trailing_blanks=trailing_blanks,
-        pad_last_signature_to_full=pad_last_signature_to_full,
-    )
-    result: list[tuple[int, str] | None] = [None] * len(order)
-    for physical_position, source_index in enumerate(order):
-        if source_index is not None:
-            reading_position = leading_blanks + source_index
-            side = "left" if physical_position % 2 == 0 else "right"
-            result[reading_position] = (physical_position // 2, side)
-    return result
-
-
-def _bound_reading_order_separate_cover(
-    page_count: int, signature_size_pages: int, *, pad_last_signature_to_full: bool = False
-) -> list[tuple[int, str] | None]:
-    if page_count < 2:
-        raise ValueError("separate_cover requires at least 2 pages (front and back cover content)")
-
-    interior_count = page_count - 2
-    interior_mapping = bound_reading_order(
-        interior_count,
-        signature_size_pages,
-        leading_blanks=1,
-        trailing_blanks=1,
-        pad_last_signature_to_full=pad_last_signature_to_full,
-    )
-
-    # The cover folio is always exactly 2 output pages (1 physical sheet);
-    # interior sheets follow it in the combined imposed document, so their
-    # sheet indices need shifting by that many output pages.
-    cover_sheet_page_count = len(build_cover_order(0, 0)) // 2  # == 2, always
-
-    result: list[tuple[int, str] | None] = [None] * (len(interior_mapping) + 2)
-    result[0] = (0, "right")  # cover front: build_cover_order puts it at physical position 1
-    result[-1] = (0, "left")  # cover back: physical position 0
-    for local_index, entry in enumerate(interior_mapping):
-        if entry is not None:
-            sheet_index, side = entry
-            result[1 + local_index] = (sheet_index + cover_sheet_page_count, side)
-    return result
+    else:
+        layout = _SignatureLayout(
+            page_count=page_count,
+            signature_size_pages=signature_size_pages,
+            leading_blanks=leading_blanks,
+            trailing_blanks=trailing_blanks,
+            pad_last_signature_to_full=pad_last_signature_to_full,
+            separate_cover=False,
+        )
+    return layout.reading_order()
 
 
 #: Thin divider drawn down the middle of a two-page spread view, standing in
@@ -522,22 +569,7 @@ def build_bound_preview(imposed: fitz.Document, src_page_count: int, params: Imp
     visually exactly as a reader would encounter it, instead of requiring
     the sheet order in the Imposed tab to be mentally folded/unfolded.
     """
-    if params.separate_cover:
-        mapping = bound_reading_order(
-            src_page_count,
-            params.signature_size_pages,
-            separate_cover=True,
-            pad_last_signature_to_full=params.pad_last_signature_to_full,
-        )
-    else:
-        endpaper_count = 1 if params.include_endpapers else 0
-        mapping = bound_reading_order(
-            src_page_count,
-            params.signature_size_pages,
-            leading_blanks=endpaper_count,
-            trailing_blanks=endpaper_count,
-            pad_last_signature_to_full=params.pad_last_signature_to_full,
-        )
+    mapping = _SignatureLayout.resolve(params, src_page_count).reading_order()
     cell_width = params.sheet_width_pt / 2
     cell_height = params.sheet_height_pt
 
@@ -609,54 +641,31 @@ class ImpositionStats:
 def compute_stats(page_count: int, params: ImpositionParams) -> ImpositionStats:
     if page_count <= 0:
         return ImpositionStats(0, params.signature_size_pages, 0, 0, 0, 0)
-
-    if params.separate_cover:
-        return _compute_stats_separate_cover(page_count, params)
-
-    endpaper_count = 1 if params.include_endpapers else 0
-    content_and_required_blanks = endpaper_count + page_count + endpaper_count
-    chunk_sizes = _chunk_sizes(content_and_required_blanks, params.signature_size_pages, params.pad_last_signature_to_full)
-    padded_total = sum(chunk_sizes)
-    sheet_side_count = padded_total // 2
-
-    return ImpositionStats(
-        source_page_count=page_count,
-        signature_size_pages=params.signature_size_pages,
-        signature_count=len(chunk_sizes),
-        blank_pages_added=padded_total - page_count,
-        sheet_side_count=sheet_side_count,
-        physical_sheet_count=sheet_side_count // 2,
-        signature_sizes=tuple(chunk_sizes),
-    )
-
-
-def _compute_stats_separate_cover(page_count: int, params: ImpositionParams) -> ImpositionStats:
-    if page_count < 2:
+    if params.separate_cover and page_count < 2:
         # Not enough pages for a front/back cover; report zeros rather than
         # raising here — impose()/build_bound_preview raise when actually run.
         return ImpositionStats(page_count, params.signature_size_pages, 0, 0, 0, 0, has_separate_cover=True)
 
-    interior_count = page_count - 2
-    content_and_required_blanks = 1 + interior_count + 1  # inside-cover blanks
-    chunk_sizes = _chunk_sizes(content_and_required_blanks, params.signature_size_pages, params.pad_last_signature_to_full)
+    layout = _SignatureLayout.resolve(params, page_count)
+    chunk_sizes = layout.chunk_sizes()
     interior_padded_total = sum(chunk_sizes)
-    interior_sheet_sides = interior_padded_total // 2
-
-    cover_sheet_sides = 2  # 1 physical sheet, front + back
-    total_sheet_sides = cover_sheet_sides + interior_sheet_sides
+    total_sheet_sides = interior_padded_total // 2
+    if layout.separate_cover:
+        total_sheet_sides += _COVER_SHEET_SIDES
 
     return ImpositionStats(
         source_page_count=page_count,
         signature_size_pages=params.signature_size_pages,
         signature_count=len(chunk_sizes),
-        # interior_padded_total already accounts for the 2 inside-cover
-        # blanks (folded into content_and_required_blanks above) plus any
-        # further filler padding needed to complete the last signature.
-        blank_pages_added=interior_padded_total - interior_count,
+        # interior_padded_total covers the leading/trailing blanks (endpapers
+        # or inside-cover blanks) plus any filler needed to complete the last
+        # signature; layout.page_count is the real content those were added
+        # around — the interior only, in separate_cover mode.
+        blank_pages_added=interior_padded_total - layout.page_count,
         sheet_side_count=total_sheet_sides,
         physical_sheet_count=total_sheet_sides // 2,
-        has_separate_cover=True,
-        cover_physical_sheet_count=1,
+        has_separate_cover=layout.separate_cover,
+        cover_physical_sheet_count=1 if layout.separate_cover else 0,
         signature_sizes=tuple(chunk_sizes),
     )
 

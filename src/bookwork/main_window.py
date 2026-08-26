@@ -128,7 +128,27 @@ class MainWindow(QMainWindow):
 
         self._source_pane.load_document(document)
         self.setWindowTitle(f"Bookwork — {document.path.name}")
-        self._regenerate_imposed(self._imposition_panel.current_params())
+        self._reimpose_from_panel()
+
+    def _reimpose_from_panel(self) -> None:
+        """Re-impose using whatever the settings panel's fields currently
+        hold, surfacing an invalid combination as a warning.
+
+        Every caller goes through here rather than passing
+        `current_params()` straight to `_regenerate_imposed`, because that
+        call raises `ValueError` on a combination the widgets still accept
+        (the signature-size spinbox happily holds 6, which isn't a multiple
+        of 4). Unguarded, that exception escapes a Qt slot *after* the
+        source document has already been edited — Qt swallows it to stderr,
+        so the Imposed and Bound Preview tabs are left showing a stale
+        layout for the pre-edit document with nothing shown to the user.
+        """
+        try:
+            params = self._imposition_panel.current_params()
+        except ValueError as exc:
+            QMessageBox.warning(self, "Invalid imposition settings", str(exc))
+            return
+        self._regenerate_imposed(params)
 
     def _regenerate_imposed(self, params: ImpositionParams) -> None:
         if self._source_pane.document is None:
@@ -182,7 +202,7 @@ class MainWindow(QMainWindow):
         document.insert_blank_page(index)
         self._source_pane.refresh()
         self._source_pane.show_page(index)
-        self._regenerate_imposed(self._imposition_panel.current_params())
+        self._reimpose_from_panel()
 
     def _delete_page(self, index: int) -> None:
         document = self._source_pane.document
@@ -193,7 +213,7 @@ class MainWindow(QMainWindow):
             return
         document.delete_page(index)
         self._source_pane.refresh()
-        self._regenerate_imposed(self._imposition_panel.current_params())
+        self._reimpose_from_panel()
 
     def _undo(self) -> None:
         document = self._source_pane.document
@@ -201,7 +221,7 @@ class MainWindow(QMainWindow):
             return
         document.undo()
         self._source_pane.refresh()
-        self._regenerate_imposed(self._imposition_panel.current_params())
+        self._reimpose_from_panel()
 
     def _redo(self) -> None:
         document = self._source_pane.document
@@ -209,7 +229,7 @@ class MainWindow(QMainWindow):
             return
         document.redo()
         self._source_pane.refresh()
-        self._regenerate_imposed(self._imposition_panel.current_params())
+        self._reimpose_from_panel()
 
     def _current_pane(self) -> PdfViewerPane:
         return self._panes[self._tabs.currentIndex()]
