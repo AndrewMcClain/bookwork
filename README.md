@@ -103,10 +103,14 @@ The layout stats below the checkboxes spell out the actual breakdown, e.g.
 
 **Printing**: File → Print Imposed... (Ctrl+P) opens the system print dialog
 pre-configured for the imposed sheet's exact size and duplex mode (short-edge
-by default, matching this project's fold orientation), and full-bleed —
-without this, the printer driver's own default margins would clip crop marks
-and push content off-position. It always prints the Imposed tab's output,
-regardless of which tab is currently active.
+by default, matching this project's fold orientation). It always prints the
+Imposed tab's output, regardless of which tab is currently active. Each page
+is scaled to fit the printer's actual reported printable area (most real
+printers, laser ones especially, have a hardware-imposed unprintable margin
+around every edge that software can't override) rather than assumed to be
+fully borderless — so content is never clipped, even on a printer that can't
+image all the way to the edge; the crop marks may end up very slightly
+inset from the true paper edge on such a printer as a result.
 
 **Presets**: the Preset dropdown at the top of the Imposed tab's settings
 panel saves and recalls a full set of imposition settings (signature size,
