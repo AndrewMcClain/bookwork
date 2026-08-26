@@ -90,6 +90,17 @@ booklet printed with heavier cover stock. Mutually exclusive with the
 endpapers option (the UI unchecks one when you check the other) — a case
 binding's cover *is* the case, it doesn't also get a wrap folio.
 
+**Pad last signature to full size**, also in that panel, controls what
+happens when the content doesn't divide evenly into the signature size. By
+default (unchecked) the leftover partial signature is padded only up to the
+next multiple of 4 — the physical minimum — instead of all the way to a full
+signature, to avoid wasting blank pages/sheets: a 4-page document with a
+20-page signature size prints on 1 sheet instead of 5. Checking it forces
+every signature, including the last, to the same full length (matching
+`psbook`'s own behavior) — trading that savings for uniform signature sizes.
+The layout stats below the checkboxes spell out the actual breakdown, e.g.
+"20 pages/signature, 2 full signatures + 1 signature of 4 pages".
+
 **Printing**: File → Print Imposed... (Ctrl+P) opens the system print dialog
 pre-configured for the imposed sheet's exact size and duplex mode (short-edge
 by default, matching this project's fold orientation), and full-bleed —

@@ -54,9 +54,10 @@ def test_opening_pdf_also_populates_imposed_tab(qtbot, make_pdf):
     window.open_pdf(str(path))
 
     assert window._imposed_pane.document is not None
-    # Signature size defaults to 20 pages; a 4-page doc is padded up to a full
-    # 20-page signature (like real psbook does) -> 10 sheet sides.
-    assert window._imposed_pane.document.page_count == 10
+    # Signature size defaults to 20 pages, but the last (only) signature is
+    # minimized by default -> a 4-page doc pads only to 4, not a full 20
+    # -> 2 sheet sides.
+    assert window._imposed_pane.document.page_count == 2
 
 
 def test_changing_imposition_params_regenerates_imposed_view(qtbot, make_pdf):
@@ -65,8 +66,8 @@ def test_changing_imposition_params_regenerates_imposed_view(qtbot, make_pdf):
     qtbot.addWidget(window)
     window.open_pdf(str(path))
 
-    # 16 pages padded up to the default 20-page signature -> 10 sheet sides.
-    assert window._imposed_pane.document.page_count == 10
+    # 16 pages, default 20-page signature, minimized -> pads only to 16 -> 8 sheet sides.
+    assert window._imposed_pane.document.page_count == 8
 
     window._imposition_panel._signature_size.setValue(8)
     window._imposition_panel.try_emit_params()
@@ -149,8 +150,9 @@ def test_imposition_panel_stats_reflect_opened_document(qtbot, make_pdf):
 
     stats_text = window._imposition_panel._stats_label.text()
     assert "20" in stats_text  # source pages
-    assert "3" in stats_text  # signatures (20 pages / 8-page signatures -> 3)
-    assert "4" in stats_text  # blank pages added
+    assert "2 full signatures" in stats_text  # 20 pages / 8-page signatures -> 2 full + 1 partial
+    assert "1 signature of 4 pages" in stats_text  # minimized by default, not padded to a full 8
+    assert "10" in stats_text  # sheet sides (no wasted padding)
 
 
 def _source_page_texts(window: MainWindow) -> list[str]:
@@ -273,7 +275,9 @@ def test_separate_cover_checkbox_regenerates_with_cover(qtbot, make_pdf):
     window._imposition_panel._separate_cover.setChecked(True)
     window._imposition_panel.try_emit_params()
 
-    assert window._imposed_pane.document.page_count == 10  # 2 cover + 8 interior
+    # 2 cover sheet sides + interior (8 pages -> content 10, minimized to
+    # chunks [8,4]=12 -> 6 sheet sides) = 8.
+    assert window._imposed_pane.document.page_count == 8
     stats_text = window._imposition_panel._stats_label.text()
     assert "cover sheet" in stats_text
 
@@ -405,3 +409,23 @@ def test_deleting_a_preset_removes_it_from_the_combo(qtbot, monkeypatch):
     panel._delete_selected_preset()
 
     assert panel._preset_combo.findText("Temp") == -1
+
+
+def test_pad_last_signature_to_full_checkbox_toggles_padding_behavior(qtbot, make_pdf):
+    path = make_pdf(num_pages=20)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._imposition_panel._signature_size.setValue(8)
+    window.open_pdf(str(path))
+
+    # Off by default: last signature minimized -> chunks [8,8,4] -> 10 sheets.
+    assert not window._imposition_panel._pad_last_signature_to_full.isChecked()
+    assert window._imposed_pane.document.page_count == 10
+
+    window._imposition_panel._pad_last_signature_to_full.setChecked(True)
+    window._imposition_panel.try_emit_params()
+
+    # On: every signature forced to the full 8 pages -> chunks [8,8,8] -> 12 sheets.
+    assert window._imposed_pane.document.page_count == 12
+    stats_text = window._imposition_panel._stats_label.text()
+    assert "8 pages/signature, 3 signatures" in stats_text

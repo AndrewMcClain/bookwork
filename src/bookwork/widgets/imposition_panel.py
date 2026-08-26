@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from bookwork.imposition import ImpositionParams, ImpositionStats
+from bookwork.imposition import ImpositionParams, ImpositionStats, describe_signature_sizes
 from bookwork.presets import default_settings, delete_preset, list_preset_names, load_preset, save_preset
 
 _PT_PER_INCH = 72.0
@@ -90,6 +90,14 @@ class ImpositionPanel(QWidget):
             "— e.g. for a saddle-stitch booklet with heavier cover stock."
         )
 
+        self._pad_last_signature_to_full = QCheckBox("Pad last signature to full size")
+        self._pad_last_signature_to_full.setToolTip(
+            "By default, a leftover partial signature is padded only up to\n"
+            "the next multiple of 4, to avoid wasting blank pages/sheets.\n"
+            "Check this to force every signature — including the last — to\n"
+            "the same full signature size instead."
+        )
+
         # Mutually exclusive: ImpositionParams itself rejects both being set,
         # but resolving that in the UI directly is friendlier than a warning
         # dialog every time.
@@ -115,6 +123,7 @@ class ImpositionPanel(QWidget):
         form.addRow(self._show_crop_marks)
         form.addRow(self._include_endpapers)
         form.addRow(self._separate_cover)
+        form.addRow(self._pad_last_signature_to_full)
         form.addRow(self._apply_button)
 
         self._stats_label = QLabel("Open a PDF to see layout stats.")
@@ -148,6 +157,7 @@ class ImpositionPanel(QWidget):
         self._show_crop_marks.setChecked(params.show_crop_marks)
         self._include_endpapers.setChecked(params.include_endpapers)
         self._separate_cover.setChecked(params.separate_cover)
+        self._pad_last_signature_to_full.setChecked(params.pad_last_signature_to_full)
 
     def current_params(self) -> ImpositionParams:
         """Build an `ImpositionParams` from the current field values.
@@ -167,6 +177,7 @@ class ImpositionPanel(QWidget):
             show_crop_marks=self._show_crop_marks.isChecked(),
             include_endpapers=self._include_endpapers.isChecked(),
             separate_cover=self._separate_cover.isChecked(),
+            pad_last_signature_to_full=self._pad_last_signature_to_full.isChecked(),
         )
 
     def try_emit_params(self) -> None:
@@ -235,16 +246,12 @@ class ImpositionPanel(QWidget):
             self._stats_label.setText("Open a PDF to see layout stats.")
             return
 
-        signature_desc = (
-            "single signature (whole document)"
-            if stats.signature_size_pages == 0
-            else f"{stats.signature_size_pages} pages/signature"
-        )
-        lines = [f"<b>{stats.source_page_count}</b> source pages, {signature_desc}"]
-        if stats.has_separate_cover:
-            lines.append(f"<b>1</b> cover sheet + <b>{stats.signature_count}</b> interior signature(s)")
+        lines = [f"<b>{stats.source_page_count}</b> source pages"]
+        if stats.signature_size_pages == 0:
+            lines.append("single signature (whole document)")
         else:
-            lines.append(f"<b>{stats.signature_count}</b> signature(s)")
+            breakdown = describe_signature_sizes(stats.signature_sizes)
+            lines.append(f"<b>1</b> cover sheet + {breakdown}" if stats.has_separate_cover else breakdown)
         if stats.blank_pages_added:
             lines.append(f"<b>{stats.blank_pages_added}</b> blank page(s) added")
         lines.append(

@@ -71,6 +71,18 @@ class ImpositionParams:
     #: (a case binding's cover *is* the case — it doesn't have its own wrap
     #: folio in this sense). See `build_cover_order`.
     separate_cover: bool = False
+    #: When the content doesn't divide evenly into `signature_size_pages`,
+    #: the default is to pad the trailing partial signature only up to the
+    #: next multiple of 4 (the physical minimum — see
+    #: `_signature_block_order`), not all the way up to a full
+    #: `signature_size_pages`, to avoid wasting blank pages/sheets — e.g. a
+    #: 4-page document with a 20-page signature size prints on 1 sheet
+    #: instead of 5. Setting `pad_last_signature_to_full=True` forces every
+    #: signature to the same full length instead (matching psbook's own
+    #: behavior), trading that savings for uniformity. No effect when
+    #: `signature_size_pages` is 0 (a single signature already only pads to
+    #: a multiple of 4). See `_chunk_sizes`.
+    pad_last_signature_to_full: bool = False
 
     def __post_init__(self) -> None:
         if self.signature_size_pages < 0:
@@ -97,6 +109,7 @@ def compute_signature_order(
     *,
     leading_blanks: int = 0,
     trailing_blanks: int = 0,
+    pad_last_signature_to_full: bool = False,
 ) -> list[int | None]:
     """Return output positions -> source page index (0-based), or `None` for a
     blank (padding, or an explicit leading/trailing blank), in
@@ -104,15 +117,21 @@ def compute_signature_order(
 
     This mirrors `psbook`'s behavior: pages are split into consecutive chunks
     of `signature_size_pages` (or one chunk covering everything, if 0), each
-    chunk padded with blanks up to a full signature length, and each chunk
-    reordered with the standard saddle-stitch formula so that printing the
-    result 2-up, duplex, and folding once per signature yields correct reading
-    order.
+    chunk reordered with the standard saddle-stitch formula so that printing
+    the result 2-up, duplex, and folding once per signature yields correct
+    reading order.
 
     `leading_blanks`/`trailing_blanks` insert that many guaranteed blank
     pages before/after the real content (e.g. `1`/`1` for hardcover endpapers
-    — see `ImpositionParams.include_endpapers`) before the usual padding (to
-    a full signature length) is added at the tail.
+    — see `ImpositionParams.include_endpapers`) before the usual trailing
+    padding.
+
+    By default, a trailing partial signature is padded only up to the next
+    multiple of 4 (the physical minimum), not all the way to a full
+    `signature_size_pages` — pass `pad_last_signature_to_full=True` to force
+    every signature to the same full length instead (matching psbook's own
+    behavior) — see `ImpositionParams.pad_last_signature_to_full` and
+    `_chunk_sizes`.
     """
     if signature_size_pages < 0:
         raise ValueError("signature_size_pages must be >= 0")
@@ -122,11 +141,10 @@ def compute_signature_order(
         raise ValueError("leading_blanks and trailing_blanks must be >= 0")
 
     content_and_required_blanks = leading_blanks + max(page_count, 0) + trailing_blanks
-    if content_and_required_blanks <= 0:
+    chunk_sizes = _chunk_sizes(content_and_required_blanks, signature_size_pages, pad_last_signature_to_full)
+    if not chunk_sizes:
         return []
-
-    size = signature_size_pages or _round_up_to_multiple(content_and_required_blanks, 4)
-    padded_total = _round_up_to_multiple(content_and_required_blanks, size)
+    padded_total = sum(chunk_sizes)
 
     pages: list[int | None] = [None] * leading_blanks
     pages.extend(range(page_count))
@@ -134,9 +152,38 @@ def compute_signature_order(
     pages.extend([None] * (padded_total - content_and_required_blanks))
 
     order: list[int | None] = []
-    for start in range(0, padded_total, size):
-        order.extend(_signature_block_order(pages[start : start + size]))
+    start = 0
+    for chunk_size in chunk_sizes:
+        order.extend(_signature_block_order(pages[start : start + chunk_size]))
+        start += chunk_size
     return order
+
+
+def _chunk_sizes(total: int, signature_size_pages: int, pad_last_signature_to_full: bool) -> list[int]:
+    """The length of each signature (always a multiple of 4) needed to
+    cover `total` pages (real content plus any required leading/trailing
+    blanks).
+
+    - `signature_size_pages == 0`: one signature, padded to a multiple of 4
+      (there's no "last signature" distinct from the rest, so
+      `pad_last_signature_to_full` has no effect).
+    - Otherwise, as many full `signature_size_pages`-length signatures as
+      fit, plus — if there's a nonzero remainder — one more signature for
+      it: by default just padded up to the next multiple of 4 (fewer wasted
+      blank pages), or the full `signature_size_pages`
+      (`pad_last_signature_to_full=True`, uniform, matching psbook's own
+      behavior).
+    """
+    if total <= 0:
+        return []
+    if signature_size_pages == 0:
+        return [_round_up_to_multiple(total, 4)]
+
+    full_count, remainder = divmod(total, signature_size_pages)
+    if remainder == 0:
+        return [signature_size_pages] * full_count
+    last_size = signature_size_pages if pad_last_signature_to_full else _round_up_to_multiple(remainder, 4)
+    return [signature_size_pages] * full_count + [last_size]
 
 
 def _round_up_to_multiple(n: int, m: int) -> int:
@@ -173,7 +220,9 @@ def build_cover_order(first_index: int, last_index: int) -> list[int | None]:
     return [last_index, first_index, None, None]
 
 
-def _separate_cover_order(page_count: int, signature_size_pages: int) -> list[int | None]:
+def _separate_cover_order(
+    page_count: int, signature_size_pages: int, *, pad_last_signature_to_full: bool = False
+) -> list[int | None]:
     """Physical order for the whole document in `separate_cover` mode: a
     fixed 4-slot cover folio (see `build_cover_order`), followed by the
     interior (everything but the first/last page) imposed into its own
@@ -189,7 +238,11 @@ def _separate_cover_order(page_count: int, signature_size_pages: int) -> list[in
 
     interior_count = page_count - 2
     interior_relative_order = compute_signature_order(
-        interior_count, signature_size_pages, leading_blanks=1, trailing_blanks=1
+        interior_count,
+        signature_size_pages,
+        leading_blanks=1,
+        trailing_blanks=1,
+        pad_last_signature_to_full=pad_last_signature_to_full,
     )
     # interior_relative_order indexes into the interior alone (0-based from
     # the second source page); shift back to real source indices.
@@ -209,7 +262,9 @@ def impose(src: fitz.Document, params: ImpositionParams | None = None) -> fitz.D
     """
     params = params or ImpositionParams()
     if params.separate_cover:
-        order = _separate_cover_order(src.page_count, params.signature_size_pages)
+        order = _separate_cover_order(
+            src.page_count, params.signature_size_pages, pad_last_signature_to_full=params.pad_last_signature_to_full
+        )
     else:
         endpaper_count = 1 if params.include_endpapers else 0
         order = compute_signature_order(
@@ -217,6 +272,7 @@ def impose(src: fitz.Document, params: ImpositionParams | None = None) -> fitz.D
             params.signature_size_pages,
             leading_blanks=endpaper_count,
             trailing_blanks=endpaper_count,
+            pad_last_signature_to_full=params.pad_last_signature_to_full,
         )
     return _build_sheets(src, order, params)
 
@@ -345,6 +401,7 @@ def bound_reading_order(
     leading_blanks: int = 0,
     trailing_blanks: int = 0,
     separate_cover: bool = False,
+    pad_last_signature_to_full: bool = False,
 ) -> list[tuple[int, str] | None]:
     """Return, for every reading-order slot (0-based — slot 0 is the first
     `leading_blanks` blank page(s), then real page 1, 2, ..., then
@@ -366,13 +423,16 @@ def bound_reading_order(
     — see `_separate_cover_order`/`ImpositionParams.separate_cover`.
     """
     if separate_cover:
-        return _bound_reading_order_separate_cover(page_count, signature_size_pages)
+        return _bound_reading_order_separate_cover(
+            page_count, signature_size_pages, pad_last_signature_to_full=pad_last_signature_to_full
+        )
 
     order = compute_signature_order(
         page_count,
         signature_size_pages,
         leading_blanks=leading_blanks,
         trailing_blanks=trailing_blanks,
+        pad_last_signature_to_full=pad_last_signature_to_full,
     )
     result: list[tuple[int, str] | None] = [None] * len(order)
     for physical_position, source_index in enumerate(order):
@@ -383,13 +443,19 @@ def bound_reading_order(
     return result
 
 
-def _bound_reading_order_separate_cover(page_count: int, signature_size_pages: int) -> list[tuple[int, str] | None]:
+def _bound_reading_order_separate_cover(
+    page_count: int, signature_size_pages: int, *, pad_last_signature_to_full: bool = False
+) -> list[tuple[int, str] | None]:
     if page_count < 2:
         raise ValueError("separate_cover requires at least 2 pages (front and back cover content)")
 
     interior_count = page_count - 2
     interior_mapping = bound_reading_order(
-        interior_count, signature_size_pages, leading_blanks=1, trailing_blanks=1
+        interior_count,
+        signature_size_pages,
+        leading_blanks=1,
+        trailing_blanks=1,
+        pad_last_signature_to_full=pad_last_signature_to_full,
     )
 
     # The cover folio is always exactly 2 output pages (1 physical sheet);
@@ -457,7 +523,12 @@ def build_bound_preview(imposed: fitz.Document, src_page_count: int, params: Imp
     the sheet order in the Imposed tab to be mentally folded/unfolded.
     """
     if params.separate_cover:
-        mapping = bound_reading_order(src_page_count, params.signature_size_pages, separate_cover=True)
+        mapping = bound_reading_order(
+            src_page_count,
+            params.signature_size_pages,
+            separate_cover=True,
+            pad_last_signature_to_full=params.pad_last_signature_to_full,
+        )
     else:
         endpaper_count = 1 if params.include_endpapers else 0
         mapping = bound_reading_order(
@@ -465,6 +536,7 @@ def build_bound_preview(imposed: fitz.Document, src_page_count: int, params: Imp
             params.signature_size_pages,
             leading_blanks=endpaper_count,
             trailing_blanks=endpaper_count,
+            pad_last_signature_to_full=params.pad_last_signature_to_full,
         )
     cell_width = params.sheet_width_pt / 2
     cell_height = params.sheet_height_pt
@@ -527,6 +599,11 @@ class ImpositionStats:
     physical_sheet_count: int  # sheet_side_count / 2 (front + back per sheet)
     has_separate_cover: bool = False
     cover_physical_sheet_count: int = 0  # always 1 when has_separate_cover
+    #: The actual page count of each signature, in order (e.g. `(20, 20, 4)`
+    #: for 5→3 full 20-page signatures plus a shorter last one) — the
+    #: interior's own signatures when has_separate_cover, not counting the
+    #: cover folio. See `_chunk_sizes` and `describe_signature_sizes`.
+    signature_sizes: tuple[int, ...] = ()
 
 
 def compute_stats(page_count: int, params: ImpositionParams) -> ImpositionStats:
@@ -538,17 +615,18 @@ def compute_stats(page_count: int, params: ImpositionParams) -> ImpositionStats:
 
     endpaper_count = 1 if params.include_endpapers else 0
     content_and_required_blanks = endpaper_count + page_count + endpaper_count
-    size = params.signature_size_pages or _round_up_to_multiple(content_and_required_blanks, 4)
-    padded_total = _round_up_to_multiple(content_and_required_blanks, size)
+    chunk_sizes = _chunk_sizes(content_and_required_blanks, params.signature_size_pages, params.pad_last_signature_to_full)
+    padded_total = sum(chunk_sizes)
     sheet_side_count = padded_total // 2
 
     return ImpositionStats(
         source_page_count=page_count,
         signature_size_pages=params.signature_size_pages,
-        signature_count=padded_total // size,
+        signature_count=len(chunk_sizes),
         blank_pages_added=padded_total - page_count,
         sheet_side_count=sheet_side_count,
         physical_sheet_count=sheet_side_count // 2,
+        signature_sizes=tuple(chunk_sizes),
     )
 
 
@@ -560,8 +638,8 @@ def _compute_stats_separate_cover(page_count: int, params: ImpositionParams) -> 
 
     interior_count = page_count - 2
     content_and_required_blanks = 1 + interior_count + 1  # inside-cover blanks
-    size = params.signature_size_pages or _round_up_to_multiple(content_and_required_blanks, 4)
-    interior_padded_total = _round_up_to_multiple(content_and_required_blanks, size)
+    chunk_sizes = _chunk_sizes(content_and_required_blanks, params.signature_size_pages, params.pad_last_signature_to_full)
+    interior_padded_total = sum(chunk_sizes)
     interior_sheet_sides = interior_padded_total // 2
 
     cover_sheet_sides = 2  # 1 physical sheet, front + back
@@ -570,7 +648,7 @@ def _compute_stats_separate_cover(page_count: int, params: ImpositionParams) -> 
     return ImpositionStats(
         source_page_count=page_count,
         signature_size_pages=params.signature_size_pages,
-        signature_count=interior_padded_total // size,
+        signature_count=len(chunk_sizes),
         # interior_padded_total already accounts for the 2 inside-cover
         # blanks (folded into content_and_required_blanks above) plus any
         # further filler padding needed to complete the last signature.
@@ -579,4 +657,28 @@ def _compute_stats_separate_cover(page_count: int, params: ImpositionParams) -> 
         physical_sheet_count=total_sheet_sides // 2,
         has_separate_cover=True,
         cover_physical_sheet_count=1,
+        signature_sizes=tuple(chunk_sizes),
     )
+
+
+def describe_signature_sizes(sizes: tuple[int, ...]) -> str:
+    """A human-readable breakdown of `ImpositionStats.signature_sizes`, e.g.
+    "20 pages/signature, 5 full signatures + 1 signature of 4 pages" when
+    the last signature is shorter, or "20 pages/signature, 3 signatures"
+    when they're all the same length.
+    """
+    if not sizes:
+        return "0 signatures"
+
+    if len(set(sizes)) == 1:
+        size = sizes[0]
+        count = len(sizes)
+        return f"{size} pages/signature, {count} signature{'s' if count != 1 else ''}"
+
+    # _chunk_sizes only ever produces at most one differently-sized chunk,
+    # and it's always the last one.
+    full_size = sizes[0]
+    full_count = sum(1 for size in sizes if size == full_size)
+    last_size = sizes[-1]
+    full_word = f"full signature{'s' if full_count != 1 else ''}"
+    return f"{full_size} pages/signature, {full_count} {full_word} + 1 signature of {last_size} pages"

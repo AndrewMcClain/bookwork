@@ -34,7 +34,10 @@ def test_signature_order_matches_psbook_s8_two_full_signatures():
 
 def test_signature_order_matches_psbook_s8_with_padding():
     # 20 pages, signature size 8: 2 full signatures + 1 padded (4 real + 4 blank).
-    order = compute_signature_order(page_count=20, signature_size_pages=8)
+    # psbook always pads the trailing signature to the full size, matching
+    # pad_last_signature_to_full=True; the new default instead pads only to
+    # the next multiple of 4 -- see test_pad_last_signature_to_full_* below.
+    order = compute_signature_order(page_count=20, signature_size_pages=8, pad_last_signature_to_full=True)
     assert len(order) == 24
     last_signature = order[16:]
     assert last_signature == [None, 16, 17, None, None, 18, 19, None]
@@ -55,8 +58,9 @@ def test_signature_order_matches_psbook_s20_single_signature():
 
 def test_signature_order_matches_psbook_s20_padding_to_full_signature():
     # 25 pages, signature size 20: signature 2 is padded up to a full 20 pages
-    # (15 blanks), not just to a multiple of 4.
-    order = compute_signature_order(page_count=25, signature_size_pages=20)
+    # (15 blanks), not just to a multiple of 4 -- psbook's own (uniform)
+    # behavior, matching pad_last_signature_to_full=True.
+    order = compute_signature_order(page_count=25, signature_size_pages=20, pad_last_signature_to_full=True)
     assert len(order) == 40
     second_signature = order[20:]
     assert second_signature.count(None) == 15
@@ -339,13 +343,27 @@ def test_build_bound_preview_left_right_order_within_a_spread(make_pdf):
 
 
 def test_compute_stats_reports_signatures_and_padding():
-    stats = compute_stats(page_count=20, params=ImpositionParams(signature_size_pages=8))
+    stats = compute_stats(
+        page_count=20, params=ImpositionParams(signature_size_pages=8, pad_last_signature_to_full=True)
+    )
     assert stats.source_page_count == 20
     assert stats.signature_size_pages == 8
     assert stats.signature_count == 3
     assert stats.blank_pages_added == 4
     assert stats.sheet_side_count == 12
     assert stats.physical_sheet_count == 6
+    assert stats.signature_sizes == (8, 8, 8)
+
+
+def test_compute_stats_minimizes_last_signature_by_default():
+    # Same 20 pages / 8-page signatures as above, but without forcing full
+    # padding: the last signature only pads up to a multiple of 4 (4, not 8).
+    stats = compute_stats(page_count=20, params=ImpositionParams(signature_size_pages=8))
+    assert stats.signature_count == 3
+    assert stats.blank_pages_added == 0
+    assert stats.sheet_side_count == 10
+    assert stats.physical_sheet_count == 5
+    assert stats.signature_sizes == (8, 8, 4)
 
 
 def test_compute_stats_no_padding_needed():
@@ -374,15 +392,34 @@ def test_compute_stats_empty_document():
 
 
 def test_compute_signature_order_with_endpapers():
-    order = compute_signature_order(page_count=8, signature_size_pages=8, leading_blanks=1, trailing_blanks=1)
+    # pad_last_signature_to_full=True here to preserve the original
+    # hand-derivation (uniform 8-page signatures); see
+    # test_compute_signature_order_with_endpapers_minimized_by_default for
+    # the new default behavior with the same inputs.
+    order = compute_signature_order(
+        page_count=8, signature_size_pages=8, leading_blanks=1, trailing_blanks=1, pad_last_signature_to_full=True
+    )
     assert order == [
         6, None, 0, 5, 4, 1, 2, 3,  # chunk 0: [blank,0,1,2,3,4,5,6]
         None, 7, None, None, None, None, None, None,  # chunk 1: [7,blank x7]
     ]
 
 
+def test_compute_signature_order_with_endpapers_minimized_by_default():
+    # Same inputs as above, but without forcing full padding: content_and_
+    # required_blanks = 1+8+1 = 10, one full 8-page signature + a second
+    # signature padded only to the next multiple of 4 (4, not 8).
+    order = compute_signature_order(page_count=8, signature_size_pages=8, leading_blanks=1, trailing_blanks=1)
+    assert order == [
+        6, None, 0, 5, 4, 1, 2, 3,  # chunk 0 (unchanged): [blank,0,1,2,3,4,5,6]
+        None, 7, None, None,  # chunk 1: [7,blank,blank,blank] -> len 4, not 8
+    ]
+
+
 def test_bound_reading_order_with_endpapers_shifts_content_and_leaves_blanks():
-    mapping = bound_reading_order(page_count=8, signature_size_pages=8, leading_blanks=1, trailing_blanks=1)
+    mapping = bound_reading_order(
+        page_count=8, signature_size_pages=8, leading_blanks=1, trailing_blanks=1, pad_last_signature_to_full=True
+    )
     assert len(mapping) == 16
     assert mapping[0] is None  # leading blank (glued to front case)
     # Content now starts at reading index 1 (page 1), not 0.
@@ -404,7 +441,7 @@ def test_compute_bound_preview_views_with_endpapers_page_one_starts_a_spread():
 def test_build_bound_preview_with_endpapers_end_to_end(make_pdf):
     path = make_pdf(num_pages=8)
     src = fitz.open(path)
-    params = ImpositionParams(signature_size_pages=8, include_endpapers=True)
+    params = ImpositionParams(signature_size_pages=8, include_endpapers=True, pad_last_signature_to_full=True)
     imposed = impose(src, params)
 
     preview = build_bound_preview(imposed, src_page_count=8, params=params)
@@ -433,20 +470,32 @@ def test_build_bound_preview_with_endpapers_end_to_end(make_pdf):
 
 def test_compute_stats_accounts_for_endpapers():
     # 8 content pages, signature size 8: with no endpapers this divides
-    # evenly (1 signature, no padding). With endpapers, 1+8+1=10 content
-    # slots round up to a *second* full 8-page signature (16 slots), adding
-    # 8 blanks total (2 endpapers + 6 filler).
+    # evenly (1 signature, no padding). With endpapers and full-signature
+    # padding forced, 1+8+1=10 content slots round up to a *second* full
+    # 8-page signature (16 slots), adding 8 blanks total (2 endpapers + 6
+    # filler).
     without_endpapers = compute_stats(page_count=8, params=ImpositionParams(signature_size_pages=8))
     assert without_endpapers.blank_pages_added == 0
     assert without_endpapers.signature_count == 1
     assert without_endpapers.sheet_side_count == 4
 
     with_endpapers = compute_stats(
-        page_count=8, params=ImpositionParams(signature_size_pages=8, include_endpapers=True)
+        page_count=8,
+        params=ImpositionParams(signature_size_pages=8, include_endpapers=True, pad_last_signature_to_full=True),
     )
     assert with_endpapers.blank_pages_added == 8
     assert with_endpapers.signature_count == 2
     assert with_endpapers.sheet_side_count == 8
+
+
+def test_compute_stats_endpapers_minimized_by_default():
+    # Same as above, but without forcing full padding: the second signature
+    # only pads up to a multiple of 4 (4, not 8) -> chunk sizes [8, 4],
+    # padded total 12 (vs. page_count 8) -> 4 blanks, not 8.
+    stats = compute_stats(page_count=8, params=ImpositionParams(signature_size_pages=8, include_endpapers=True))
+    assert stats.blank_pages_added == 4
+    assert stats.signature_count == 2
+    assert stats.sheet_side_count == 6
 
 
 # --- Separate wrap cover (first/last page as a single folio) ---
@@ -471,10 +520,21 @@ def test_imposition_params_rejects_separate_cover_with_endpapers():
 def test_impose_separate_cover_sheet_count(make_pdf):
     path = make_pdf(num_pages=10)
     src = fitz.open(path)
-    out = impose(src, ImpositionParams(signature_size_pages=8, separate_cover=True))
+    out = impose(src, ImpositionParams(signature_size_pages=8, separate_cover=True, pad_last_signature_to_full=True))
     # cover: 2 sheet sides. interior (8 pages + 2 inside-cover blanks = 10,
-    # rounds up to 16): 8 sheet sides. Total 10.
+    # rounds up to a full second 8-page signature, 16): 8 sheet sides.
+    # Total 10.
     assert out.page_count == 10
+
+
+def test_impose_separate_cover_sheet_count_minimized_by_default(make_pdf):
+    # Same inputs, without forcing full padding: interior content (10) only
+    # rounds up to 12 (one full 8-page signature + a 4-page one), so 6
+    # interior sheet sides + 2 cover sheet sides = 8, not 10.
+    path = make_pdf(num_pages=10)
+    src = fitz.open(path)
+    out = impose(src, ImpositionParams(signature_size_pages=8, separate_cover=True))
+    assert out.page_count == 8
 
 
 def test_impose_separate_cover_outside_spread_layout(make_pdf):
@@ -499,7 +559,7 @@ def test_impose_separate_cover_outside_spread_layout(make_pdf):
 
 
 def test_bound_reading_order_separate_cover_matches_hand_derivation():
-    mapping = bound_reading_order(10, 8, separate_cover=True)
+    mapping = bound_reading_order(10, 8, separate_cover=True, pad_last_signature_to_full=True)
     assert len(mapping) == 18
     assert mapping[0] == (0, "right")  # cover front (page 1)
     assert mapping[-1] == (0, "left")  # cover back (page 10)
@@ -548,10 +608,21 @@ def test_impose_separate_cover_requires_at_least_two_pages(make_pdf):
 
 
 def test_compute_stats_separate_cover(make_pdf):
-    stats = compute_stats(page_count=10, params=ImpositionParams(signature_size_pages=8, separate_cover=True))
+    stats = compute_stats(
+        page_count=10,
+        params=ImpositionParams(signature_size_pages=8, separate_cover=True, pad_last_signature_to_full=True),
+    )
     assert stats.has_separate_cover
     assert stats.cover_physical_sheet_count == 1
     assert stats.signature_count == 2
     assert stats.blank_pages_added == 8
     assert stats.sheet_side_count == 10
     assert stats.physical_sheet_count == 5
+
+
+def test_compute_stats_separate_cover_minimized_by_default(make_pdf):
+    stats = compute_stats(page_count=10, params=ImpositionParams(signature_size_pages=8, separate_cover=True))
+    assert stats.signature_count == 2
+    assert stats.blank_pages_added == 4  # interior padded total 12 vs. interior_count 8
+    assert stats.sheet_side_count == 8
+    assert stats.physical_sheet_count == 4
