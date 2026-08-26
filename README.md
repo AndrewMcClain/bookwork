@@ -86,6 +86,15 @@ back, the right page goes forward — or with the **left/right arrow keys**
 once the tab has focus (switching to it focuses the book automatically). The
 thumbnail sidebar and the View menu still work as before.
 
+The turning leaf **bows** as it goes over, rather than swinging across flat
+like a card, and shades along the curl. The pages already turned and those
+still to come are drawn as **edge stacks** either side of the spine, at the
+real thickness of that many sheets of paper — so the two stacks together
+show roughly how thick the finished text block will be, and how far into it
+you are. A 16-page pamphlet shows a sliver; a 500-page book shows a
+substantial block. Paper is assumed to be 0.1mm (about 80gsm bond); it isn't
+configurable yet.
+
 **Add blank endpapers (case binding)**, in the Imposed tab's settings panel,
 adds one real blank page at the very front and one at the very back of the
 *actual printed output* (not just the preview) — for gluing the text block

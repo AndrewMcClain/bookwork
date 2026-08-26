@@ -17,41 +17,75 @@ from PySide6.QtGui import QPixmap
 from bookwork.imposition import ImpositionParams, build_bound_preview, impose
 from bookwork.pdf_document import PdfDocument
 from bookwork.widgets.page_turn_view import (
+    LEAF_STRIP_COUNT,
     PAGE_TURN_RENDER_DPI,
     PageTurnView,
     book_layout,
-    leaf_projection,
+    cast_shadow_strength,
+    edge_stack_width,
+    leaf_curve,
+    leaf_source_x,
 )
 
 PAGE_W, PAGE_H, SPINE_X, TOP_Y = 200.0, 300.0, 500.0, 40.0
 
 
-def _quad_x(polygon) -> list[float]:
-    return [polygon.at(i).x() for i in range(4)]
+def _curve(progress, strips=LEAF_STRIP_COUNT):
+    return leaf_curve(progress, PAGE_W, PAGE_H, SPINE_X, TOP_Y, strips)
 
 
-def _quad_y(polygon) -> list[float]:
-    return [polygon.at(i).y() for i in range(4)]
+def _xs(curve):
+    return [sample.x for sample in curve.samples]
 
 
-# --- Geometry ---
+# --- Leaf geometry ---
 
 
 def test_leaf_starts_flat_on_the_right():
-    quad, showing_back = leaf_projection(0.0, PAGE_W, PAGE_H, SPINE_X, TOP_Y)
-    assert showing_back is False
-    assert min(_quad_x(quad)) == pytest.approx(SPINE_X)
-    assert max(_quad_x(quad)) == pytest.approx(SPINE_X + PAGE_W)
-    # Flat against the page: no foreshortening yet.
-    assert min(_quad_y(quad)) == pytest.approx(TOP_Y)
-    assert max(_quad_y(quad)) == pytest.approx(TOP_Y + PAGE_H)
+    curve = _curve(0.0)
+    assert curve.showing_back is False
+    assert _xs(curve)[0] == pytest.approx(SPINE_X)
+    assert _xs(curve)[-1] == pytest.approx(SPINE_X + PAGE_W)
+    assert all(sample.inset == pytest.approx(0.0) for sample in curve.samples)
 
 
 def test_leaf_ends_flat_on_the_left_showing_its_back():
-    quad, showing_back = leaf_projection(1.0, PAGE_W, PAGE_H, SPINE_X, TOP_Y)
-    assert showing_back is True
-    assert max(_quad_x(quad)) == pytest.approx(SPINE_X)
-    assert min(_quad_x(quad)) == pytest.approx(SPINE_X - PAGE_W)
+    curve = _curve(1.0)
+    assert curve.showing_back is True
+    assert _xs(curve)[0] == pytest.approx(SPINE_X)
+    assert _xs(curve)[-1] == pytest.approx(SPINE_X - PAGE_W)
+    assert all(sample.inset == pytest.approx(0.0) for sample in curve.samples)
+
+
+def test_spine_end_of_the_leaf_never_moves():
+    """It is bound there. If it drifted, the page would look torn loose."""
+    for progress in (0.0, 0.2, 0.5, 0.8, 1.0):
+        assert _curve(progress).samples[0].x == pytest.approx(SPINE_X)
+
+
+def test_leaf_lies_flat_at_both_ends_and_curls_in_between():
+    """The bow is what separates a turning page from a flat card being
+    swung around, but a page resting on the stack has to be flat again."""
+    def bow(curve):
+        # How far the middle of the page departs from the straight line
+        # between its two ends.
+        xs = _xs(curve)
+        midpoint = len(xs) // 2
+        straight = (xs[0] + xs[-1]) / 2
+        return abs(xs[midpoint] - straight)
+
+    assert bow(_curve(0.0)) == pytest.approx(0.0, abs=1e-6)
+    assert bow(_curve(1.0)) == pytest.approx(0.0, abs=1e-6)
+    assert bow(_curve(0.5)) > PAGE_W * 0.05
+
+
+def test_leaf_is_never_degenerate_even_edge_on():
+    """A flat model collapses to zero width at exactly 90 degrees, where
+    `quadToQuad` has no solution. A curled page still presents a sliver of
+    itself, so the curve has real extent right through the crossover."""
+    curve = _curve(0.5)
+    span = max(_xs(curve)) - min(_xs(curve))
+    assert span > 1.0
 
 
 @pytest.mark.parametrize("progress", [0.55, 0.75, 0.95, 1.0])
@@ -60,64 +94,82 @@ def test_back_face_is_never_mirrored(progress):
     half of the turn, then snap upright when the turn ended.
 
     A sheet's two sides are bound along opposite edges — a recto along its
-    left, the verso on its back along its right — so which of the page's own
-    corners sits at the spine has to swap at the halfway point. Pinning the
-    source's top-left corner there throughout mirrors the back face.
+    left, the verso on its back along its right — so the page image has to
+    be read in the opposite direction once the leaf shows its back.
     """
-    quad, showing_back = leaf_projection(progress, PAGE_W, PAGE_H, SPINE_X, TOP_Y)
-    assert showing_back is True
-    top_left, top_right = quad.at(0), quad.at(1)
-    assert top_left.x() < top_right.x(), "back face is mirrored"
+    curve = _curve(progress)
+    assert curve.showing_back is True
+    at_spine = leaf_source_x(0.0, 100.0, curve.showing_back)
+    at_fore_edge = leaf_source_x(1.0, 100.0, curve.showing_back)
+    assert at_spine == pytest.approx(100.0), "verso's right edge belongs at the spine"
+    assert at_fore_edge == pytest.approx(0.0)
 
 
 @pytest.mark.parametrize("progress", [0.0, 0.05, 0.25, 0.45])
 def test_front_face_is_never_mirrored(progress):
-    quad, showing_back = leaf_projection(progress, PAGE_W, PAGE_H, SPINE_X, TOP_Y)
-    assert showing_back is False
-    assert quad.at(0).x() < quad.at(1).x(), "front face is mirrored"
+    curve = _curve(progress)
+    assert curve.showing_back is False
+    assert leaf_source_x(0.0, 100.0, curve.showing_back) == pytest.approx(0.0)
+    assert leaf_source_x(1.0, 100.0, curve.showing_back) == pytest.approx(100.0)
 
 
-def test_the_page_edge_meeting_the_spine_swaps_with_the_face():
-    """A recto is bound along its left edge, its verso along its right."""
-    front, _ = leaf_projection(0.25, PAGE_W, PAGE_H, SPINE_X, TOP_Y)
-    back, _ = leaf_projection(0.75, PAGE_W, PAGE_H, SPINE_X, TOP_Y)
-    assert front.at(0).x() == pytest.approx(SPINE_X)  # recto's left edge
-    assert back.at(1).x() == pytest.approx(SPINE_X)  # verso's right edge
+def test_the_face_shown_flips_at_the_halfway_point():
+    assert _curve(0.49).showing_back is False
+    assert _curve(0.51).showing_back is True
+
+
+def test_leaf_outer_edge_is_foreshortened_mid_turn():
+    """The perspective cue: points lifted out of the book plane have their
+    top and bottom edges pulled in."""
+    curve = _curve(0.3)
+    assert curve.samples[0].inset == pytest.approx(0.0)  # pinned at the spine
+    assert curve.samples[-1].inset > 0
+    assert curve.samples[-1].depth > curve.samples[0].depth
 
 
 def test_finished_turn_lands_exactly_on_the_left_page_slot():
     """At full progress the leaf must coincide with where the static left
     page is drawn, or the end of the turn visibly jumps."""
-    quad, _ = leaf_projection(1.0, PAGE_W, PAGE_H, SPINE_X, TOP_Y)
-    assert min(_quad_x(quad)) == pytest.approx(SPINE_X - PAGE_W)
-    assert max(_quad_x(quad)) == pytest.approx(SPINE_X)
-    assert min(_quad_y(quad)) == pytest.approx(TOP_Y)
-    assert max(_quad_y(quad)) == pytest.approx(TOP_Y + PAGE_H)
+    curve = _curve(1.0)
+    assert min(_xs(curve)) == pytest.approx(SPINE_X - PAGE_W)
+    assert max(_xs(curve)) == pytest.approx(SPINE_X)
 
 
-def test_leaf_narrows_toward_the_middle_of_the_turn():
-    widths = [
-        max(_quad_x(leaf_projection(p, PAGE_W, PAGE_H, SPINE_X, TOP_Y)[0]))
-        - min(_quad_x(leaf_projection(p, PAGE_W, PAGE_H, SPINE_X, TOP_Y)[0]))
-        for p in (0.0, 0.2, 0.4)
-    ]
-    assert widths == sorted(widths, reverse=True)
+def test_leaf_is_sampled_into_the_requested_number_of_strips():
+    assert len(_curve(0.5, strips=8).samples) == 9  # n strips need n+1 edges
 
 
-def test_leaf_outer_edge_is_foreshortened_mid_turn():
-    """The perspective cue: the edge away from the spine is drawn inset
-    vertically, so the page reads as tilting rather than being squashed."""
-    quad, _ = leaf_projection(0.3, PAGE_W, PAGE_H, SPINE_X, TOP_Y)
-    spine_top, outer_top = quad.at(0).y(), quad.at(1).y()
-    spine_bottom, outer_bottom = quad.at(3).y(), quad.at(2).y()
-    assert outer_top > spine_top
-    assert outer_bottom < spine_bottom
+# --- Edge stacks ---
 
 
-def test_leaf_is_none_when_edge_on():
-    """A zero-width quad has no projective solution -- QTransform.quadToQuad
-    returns None for it, which would crash the paint path."""
-    assert leaf_projection(0.5, PAGE_W, PAGE_H, SPINE_X, TOP_Y) is None
+def test_edge_stack_is_absent_with_no_leaves():
+    assert edge_stack_width(0, scale=1.0, page_w=400.0) == 0.0
+
+
+def test_edge_stack_width_tracks_real_paper_thickness():
+    """The stacks are drawn to scale so their width answers a real question
+    — how thick the finished block will be — rather than merely hinting at
+    progress. Doubling the leaves doubles the thickness."""
+    thin = edge_stack_width(50, scale=1.0, page_w=4000.0)
+    thick = edge_stack_width(100, scale=1.0, page_w=4000.0)
+    assert thick == pytest.approx(thin * 2)
+
+
+def test_edge_stack_scales_with_the_view():
+    assert edge_stack_width(100, scale=2.0, page_w=4000.0) == pytest.approx(
+        edge_stack_width(100, scale=1.0, page_w=4000.0) * 2
+    )
+
+
+def test_edge_stack_stays_visible_for_a_thin_pamphlet():
+    """Eight leaves is under a millimetre of paper; honest scaling would
+    round it away to nothing."""
+    assert edge_stack_width(8, scale=1.0, page_w=400.0) > 0
+
+
+def test_edge_stack_never_competes_with_the_pages():
+    huge = edge_stack_width(100_000, scale=1.0, page_w=400.0)
+    assert huge <= 400.0 * 0.25
 
 
 def test_book_layout_reserves_two_pages_and_preserves_aspect():
@@ -447,3 +499,134 @@ def test_clicking_an_empty_view_does_nothing(qtbot):
     qtbot.keyClick(view, Qt.Key.Key_Right)
 
     assert received == []
+
+
+# --- Leaf counts and stacks in the widget ---
+
+
+def test_leaf_counts_split_the_book_at_the_current_view(qtbot, bound_preview):
+    view = _view(qtbot, duration_ms=0)
+    total_leaves = bound_preview.page_count - 1
+
+    for index in range(bound_preview.page_count):
+        view.display(bound_preview, index)
+        left, right = view.leaf_counts()
+        assert left == index
+        assert left + right == total_leaves
+
+
+def test_no_leaves_behind_the_covers(qtbot, bound_preview):
+    view = _view(qtbot, duration_ms=0)
+
+    view.display(bound_preview, 0)
+    assert view.leaf_counts()[0] == 0, "nothing has been turned yet"
+
+    view.display(bound_preview, bound_preview.page_count - 1)
+    assert view.leaf_counts()[1] == 0, "nothing is left to turn"
+
+
+def test_the_leaf_in_flight_belongs_to_neither_stack(qtbot, bound_preview):
+    """It is drawn separately, so counting it in a stack too would show one
+    more sheet of paper than the book actually has."""
+    view = _view(qtbot)
+    total_leaves = bound_preview.page_count - 1
+    view.display(bound_preview, 2)
+    view.display(bound_preview, 3, previous_index=2)
+
+    left, right = view.leaf_counts()
+
+    assert left + right + 1 == total_leaves
+
+
+def test_leaf_counts_are_the_same_whichever_way_the_turn_runs(qtbot, bound_preview):
+    """Turning back across a gap moves the same sheet, so the stacks either
+    side of it must be the same as when turning forward."""
+    view = _view(qtbot)
+    view.display(bound_preview, 2)
+    view.display(bound_preview, 3, previous_index=2)
+    forward = view.leaf_counts()
+
+    view.display(bound_preview, 2, previous_index=3)
+
+    assert view.leaf_counts() == forward
+
+
+# --- Backdrop cache ---
+
+
+def test_backdrop_is_reused_across_frames_of_one_turn(qtbot, bound_preview):
+    """The pages and their stacks are most of the painted area and do not
+    change while a leaf turns; re-rendering them per frame is what put a
+    large window under 60fps."""
+    view = _view(qtbot)
+    view.display(bound_preview, 1)
+    view.display(bound_preview, 2, previous_index=1)
+
+    view.turn_progress = 0.2
+    view.render(QPixmap(view.size()))
+    first = view._backdrop
+    assert first is not None
+
+    view.turn_progress = 0.8
+    view.render(QPixmap(view.size()))
+
+    assert view._backdrop is first
+
+
+def test_backdrop_is_dropped_when_the_view_changes(qtbot, bound_preview):
+    view = _view(qtbot)
+    view.display(bound_preview, 1)
+    view.display(bound_preview, 2, previous_index=1)
+    view.render(QPixmap(view.size()))
+    assert view._backdrop is not None
+
+    view.display(bound_preview, 3, previous_index=2)
+
+    assert view._backdrop is None
+
+
+def test_backdrop_is_rebuilt_at_the_new_size_after_a_resize(qtbot, bound_preview):
+    """A stale backdrop would be blitted at the wrong size behind the leaf.
+    Guarded by the cached size rather than by resizeEvent alone, which Qt
+    does not deliver to a widget that has never been shown.
+    """
+    view = _view(qtbot)
+    view.display(bound_preview, 1)
+    view.display(bound_preview, 2, previous_index=1)
+    view.render(QPixmap(view.size()))
+
+    view.resize(view.width() + 160, view.height() + 80)
+    view.render(QPixmap(view.size()))
+
+    ratio = view.devicePixelRatioF()
+    assert view._backdrop.size().width() == round(view.width() * ratio)
+    assert view._backdrop.size().height() == round(view.height() * ratio)
+
+
+# --- Cast shadow continuity ---
+
+
+def test_no_shadow_while_a_page_lies_flat():
+    """A page resting on the stack casts nothing visible on the one under it."""
+    assert cast_shadow_strength(0.0) == pytest.approx(0.0)
+    assert cast_shadow_strength(1.0) == pytest.approx(0.0)
+
+
+def test_shadow_fades_out_where_it_has_to_change_sides():
+    """The leaf shadows the right page for the first half of the turn and
+    the left page for the second. Fading to nothing exactly at the crossover
+    is what keeps that switch from reading as a flicker."""
+    assert cast_shadow_strength(0.5) == pytest.approx(0.0)
+    assert cast_shadow_strength(0.49) == pytest.approx(cast_shadow_strength(0.51), abs=1e-9)
+    assert cast_shadow_strength(0.45) < cast_shadow_strength(0.3)
+
+
+def test_shadow_is_strongest_when_the_leaf_leans_over_the_page():
+    assert cast_shadow_strength(0.25) == pytest.approx(1.0)
+    assert cast_shadow_strength(0.75) == pytest.approx(1.0)
+
+
+def test_shadow_strength_is_continuous(qtbot):
+    """No step anywhere across the turn — a jump would show as a flicker."""
+    steps = [cast_shadow_strength(i / 200) for i in range(201)]
+    assert max(abs(b - a) for a, b in zip(steps, steps[1:])) < 0.05
