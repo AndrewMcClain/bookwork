@@ -171,7 +171,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            print_document(document, printer)
+            print_document(document, printer, margin_pt=params.margin_pt)
         except RuntimeError as exc:
             QMessageBox.critical(self, "Print failed", str(exc))
 

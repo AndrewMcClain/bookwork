@@ -356,7 +356,9 @@ def test_print_imposed_calls_print_document_when_dialog_is_accepted(qtbot, make_
     window.open_pdf(str(path))
 
     printed = []
-    monkeypatch.setattr("bookwork.main_window.print_document", lambda doc, printer: printed.append(doc))
+    monkeypatch.setattr(
+        "bookwork.main_window.print_document", lambda doc, printer, **kwargs: printed.append(doc)
+    )
     monkeypatch.setattr(
         "bookwork.main_window.QPrintDialog.exec",
         lambda self: QDialog.DialogCode.Accepted,

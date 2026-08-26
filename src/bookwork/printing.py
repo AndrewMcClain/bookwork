@@ -55,7 +55,7 @@ def configure_printer_for_sheet_size(printer: QPrinter, width_pt: float, height_
     )
 
 
-def print_document(document: PdfDocument, printer: QPrinter) -> None:
+def print_document(document: PdfDocument, printer: QPrinter, *, margin_pt: float = 0.0) -> None:
     """Render `document`'s pages onto `printer`, honoring whatever page
     range is already configured on it: `printer.printRange()` ==
     `PageRange` uses `printer.fromPage()`..`printer.toPage()` (clamped to
@@ -65,13 +65,17 @@ def print_document(document: PdfDocument, printer: QPrinter) -> None:
     caller (see `configure_printer_for_sheet_size`) — this function only
     does the render-and-draw loop.
 
-    Each page is scaled to fit `printer.pageRect()` — the driver's actual
-    reported printable area, not the full nominal sheet — preserving aspect
-    ratio and centered, rather than stretched to exactly fill it. On a
-    printer with no real hardware margin (or a PDF-format "printer") this is
-    a no-op; on real hardware whose margins aren't perfectly symmetric it
-    avoids distorting the page to fill a rect shaped slightly differently
-    than the sheet itself. Either way, nothing gets clipped.
+    Each page is drawn at its native size (matching the sheet exactly — no
+    scaling) unless the printer's actual printable area is too small to fit
+    even the *content* — the region inset by `margin_pt` from the sheet's
+    outer edges, which is where `imposition.py` guarantees real page
+    content stays clear of (crop marks, by contrast, sit right at that
+    outer edge by design). Content is centered within the printable area
+    and never clipped; on a printer whose hardware margin exceeds
+    `margin_pt`, the crop marks nearest the affected edge(s) may end up
+    slightly clipped instead — an explicit, deliberate tradeoff, not a bug.
+    Pass `margin_pt=0` to fall back to always shrinking to fit exactly (the
+    old behavior, appropriate if there's no known content-safe margin).
     """
     if document.page_count == 0:
         return
@@ -98,24 +102,56 @@ def print_document(document: PdfDocument, printer: QPrinter) -> None:
         # confirmed empirically before relying on this. So: only its size.
         page_rect = printer.pageRect(QPrinter.Unit.DevicePixel)
         printable_area = QRectF(0, 0, page_rect.width(), page_rect.height())
+        printer_dpi = printer.resolution()
         for offset, page_number in enumerate(range(first_page, last_page + 1)):
             if offset > 0:
                 printer.newPage()
             image = document.render_page(page_number - 1, dpi=PRINT_DPI)
-            target = _fit_centered(QSizeF(image.size()), printable_area)
+            target = _print_target_rect(QSizeF(image.size()), PRINT_DPI, margin_pt, printable_area, printer_dpi)
             painter.drawImage(target, image)
     finally:
         painter.end()
 
 
-def _fit_centered(size: QSizeF, area: QRectF) -> QRectF:
-    """`size` scaled to fit within `area` (preserving aspect ratio, never
-    enlarged past `area`'s bounds) and centered within it."""
-    if size.width() <= 0 or size.height() <= 0 or area.width() <= 0 or area.height() <= 0:
-        return area
-    scale = min(area.width() / size.width(), area.height() / size.height())
-    width = size.width() * scale
-    height = size.height() * scale
-    x = area.x() + (area.width() - width) / 2
-    y = area.y() + (area.height() - height) / 2
-    return QRectF(x, y, width, height)
+def _print_target_rect(
+    image_size_px: QSizeF,
+    image_dpi: float,
+    margin_pt: float,
+    printable_area_px: QRectF,
+    printer_dpi: float,
+) -> QRectF:
+    """Where to draw a full-sheet page image (`image_size_px`, rendered at
+    `image_dpi`) within `printable_area_px` (in the printer's own device
+    pixels, at `printer_dpi`) so that the sheet's margin-inset *content*
+    region — inset by `margin_pt` from each outer edge — is guaranteed to
+    end up fully inside `printable_area_px`, scaling down from native size
+    only if that region wouldn't otherwise fit. The sheet's own outer edge
+    (and any crop marks there) may still end up outside `printable_area_px`
+    and thus clipped — that's the point: only real content is protected.
+
+    Kept in physical points throughout except at the very start/end (pixel
+    counts in and out) specifically to avoid mixing `image_dpi` and
+    `printer_dpi` pixel spaces, which are generally different resolutions —
+    e.g. a page rendered at 300 DPI placed on a 1200 DPI printer device.
+    """
+    sheet_width_pt = image_size_px.width() * (72.0 / image_dpi)
+    sheet_height_pt = image_size_px.height() * (72.0 / image_dpi)
+
+    px_per_pt_printer = printer_dpi / 72.0
+    printable_width_pt = printable_area_px.width() / px_per_pt_printer
+    printable_height_pt = printable_area_px.height() / px_per_pt_printer
+
+    safe_width_pt = sheet_width_pt - 2 * margin_pt
+    safe_height_pt = sheet_height_pt - 2 * margin_pt
+
+    scale = 1.0
+    if safe_width_pt > 0 and printable_width_pt < safe_width_pt:
+        scale = min(scale, printable_width_pt / safe_width_pt)
+    if safe_height_pt > 0 and printable_height_pt < safe_height_pt:
+        scale = min(scale, printable_height_pt / safe_height_pt)
+
+    target_width_px = sheet_width_pt * scale * px_per_pt_printer
+    target_height_px = sheet_height_pt * scale * px_per_pt_printer
+    x = printable_area_px.x() + (printable_area_px.width() - target_width_px) / 2
+    y = printable_area_px.y() + (printable_area_px.height() - target_height_px) / 2
+    return QRectF(x, y, target_width_px, target_height_px)

@@ -104,13 +104,21 @@ The layout stats below the checkboxes spell out the actual breakdown, e.g.
 **Printing**: File → Print Imposed... (Ctrl+P) opens the system print dialog
 pre-configured for the imposed sheet's exact size and duplex mode (short-edge
 by default, matching this project's fold orientation). It always prints the
-Imposed tab's output, regardless of which tab is currently active. Each page
-is scaled to fit the printer's actual reported printable area (most real
-printers, laser ones especially, have a hardware-imposed unprintable margin
-around every edge that software can't override) rather than assumed to be
-fully borderless — so content is never clipped, even on a printer that can't
-image all the way to the edge; the crop marks may end up very slightly
-inset from the true paper edge on such a printer as a result.
+Imposed tab's output, regardless of which tab is currently active.
+
+Most real printers — laser ones especially — have a hardware-imposed
+unprintable margin around every edge that software can't override. Each page
+is drawn at its native, unscaled size unless the printer's actual reported
+printable area is too small to fit the *content* (the region inset by your
+configured margin from the sheet's outer edges — where imposition already
+guarantees real content stays clear of, crop marks being the exception, by
+design, right at that edge). So on a typical printer, where the hardware
+margin is smaller than your configured margin, nothing shrinks and no
+"phantom" margin gets introduced — the crop marks nearest the edge may end
+up slightly clipped instead, which is the acceptable tradeoff, not actual
+page content. Only on a printer whose hardware margin exceeds your
+configured margin does the whole page shrink, and only by just enough to
+keep the content itself safe.
 
 **Presets**: the Preset dropdown at the top of the Imposed tab's settings
 panel saves and recalls a full set of imposition settings (signature size,
