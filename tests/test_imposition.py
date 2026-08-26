@@ -179,6 +179,29 @@ def test_crop_marks_stay_within_the_sheet(make_pdf):
                     assert sheet.y0 <= point.y <= sheet.y1
 
 
+def test_crop_marks_never_fall_inside_the_actual_content_rect(make_pdf):
+    # The whole point: a mark must never land where the finished, trimmed
+    # page will have content on it. Only touching a corner exactly (the
+    # trim point itself) is fine -- nothing strictly inside the content
+    # rect is.
+    path = make_pdf(num_pages=4, page_size=(300, 792))
+    src = fitz.open(path)
+    params = ImpositionParams(signature_size_pages=4, margin_pt=18, gutter_pt=18)
+    out = impose(src, params)
+    page = out[0]
+
+    # Hand-computed fitted content rect for the left cell (see the test
+    # above): x=[79.9, 298.1], y=[18, 594].
+    content = fitz.Rect(79.90908813476562, 18, 298.0909118652344, 594)
+
+    for drawing in page.get_drawings():
+        for item in drawing["items"]:
+            for point in item[1:]:
+                if hasattr(point, "x") and point.x < params.sheet_width_pt / 2:
+                    is_strictly_inside = content.x0 < point.x < content.x1 and content.y0 < point.y < content.y1
+                    assert not is_strictly_inside, f"mark point {point} falls inside the content rect {content}"
+
+
 def test_crop_marks_can_be_disabled(make_pdf):
     path = make_pdf(num_pages=4)
     src = fitz.open(path)
@@ -230,9 +253,10 @@ def test_crop_marks_track_the_actual_content_edge_not_the_fixed_cell(make_pdf):
     # And they should be reasonably close to the hand-computed fitted rect
     # (avail area x=[18, 360], y=[18, 594]; 300x792 source -> scale limited
     # by height (576/792), width 218.18, centered -> content x=[79.9, 298.1]
-    # -- each mark's horizontal arm extends 5pt either side of that corner).
-    assert min(left_cell_marks) == pytest.approx(79.9 - 5, abs=0.5)
-    assert max(left_cell_marks) == pytest.approx(298.1 + 5, abs=0.5)
+    # -- each mark's horizontal arm extends outward 10pt from that corner,
+    # i.e. away from the content, never crossing over it).
+    assert min(left_cell_marks) == pytest.approx(79.9 - 10, abs=0.5)
+    assert max(left_cell_marks) == pytest.approx(298.1 + 10, abs=0.5)
 
 
 def test_bound_reading_order_matches_psbook_s8_reference():

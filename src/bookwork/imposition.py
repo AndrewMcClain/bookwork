@@ -33,11 +33,11 @@ DEFAULT_MARGIN_PT = 18.0
 #: on top of the base margin — leaves room for binding.
 DEFAULT_GUTTER_PT = 18.0
 
-#: Crop marks: a small "+" drawn at each corner of each cell, marking where
-#: that cell's trim boundary (and, for the two inner corners, the fold line)
-#: falls. Length of each arm of the cross, and line width/color.
-#: Chosen to still read clearly once the page view scales a whole landscape
-#: sheet down to fit a normal window (there's no zoom control yet).
+#: Crop marks: a small outward-pointing L-shaped tick drawn at each corner
+#: of the actual placed page content, marking where to trim it down to —
+#: see `_draw_crop_marks`. Length of each arm, and line width/color. Chosen
+#: to still read clearly once the page view scales a whole landscape sheet
+#: down to fit a normal window (there's no zoom control yet).
 CROP_MARK_LENGTH_PT = 10.0
 CROP_MARK_WIDTH_PT = 0.75
 CROP_MARK_COLOR = (0.3, 0.3, 0.3)
@@ -305,24 +305,37 @@ def _fitted_content_rect(source_rect: fitz.Rect, target: fitz.Rect) -> fitz.Rect
 
 
 def _draw_crop_marks(page: fitz.Page, content_rect: fitz.Rect) -> None:
-    """Draw a small "+" at each of `content_rect`'s four corners, marking
-    where to trim down to the real edge of the placed page content — not a
-    fixed nominal boundary, which (per `_place_in_cell`) may not match it if
-    the source page's aspect ratio leaves it scaled smaller and centered.
+    """Draw a small L-shaped tick at each of `content_rect`'s four corners,
+    marking where to trim down to the real edge of the placed page content
+    — not a fixed nominal boundary, which (per `_place_in_cell`) may not
+    match it if the source page's aspect ratio leaves it scaled smaller and
+    centered.
 
-    Each arm is clamped to the physical sheet (`page.rect`): a mark whose
-    content rect happens to sit exactly at the sheet's own edge would
-    otherwise have half its "+" fall outside the sheet and be invisible
-    (there's no bleed area beyond the sheet edge to draw into) — it becomes
-    an inward-pointing "L" there instead.
+    Each tick's two arms point *outward* only — away from the content, into
+    the surrounding blank margin — meeting the content rect at exactly one
+    point (that corner) rather than crossing into it. A "+" centered on the
+    corner would have half of each arm sitting on top of the actual page
+    content; trimming exactly along the mark would then leave ink from it on
+    the finished, cut-down page. An outward-only tick can't do that.
+
+    Each arm is clamped to the physical sheet (`page.rect`): there's no
+    bleed area beyond the sheet's own edge to draw into, so a tick whose
+    content rect happens to sit exactly at that edge is simply shorter
+    there rather than drawn off-page and invisible.
     """
-    half = CROP_MARK_LENGTH_PT / 2
+    length = CROP_MARK_LENGTH_PT
     sheet = page.rect
-    for x, y in (content_rect.tl, content_rect.tr, content_rect.bl, content_rect.br):
-        x0, x1 = max(sheet.x0, x - half), min(sheet.x1, x + half)
-        y0, y1 = max(sheet.y0, y - half), min(sheet.y1, y + half)
-        page.draw_line((x0, y), (x1, y), color=CROP_MARK_COLOR, width=CROP_MARK_WIDTH_PT)
-        page.draw_line((x, y0), (x, y1), color=CROP_MARK_COLOR, width=CROP_MARK_WIDTH_PT)
+    corners_and_outward_directions = (
+        (content_rect.tl, -1, -1),
+        (content_rect.tr, 1, -1),
+        (content_rect.bl, -1, 1),
+        (content_rect.br, 1, 1),
+    )
+    for (x, y), dx, dy in corners_and_outward_directions:
+        x_end = min(max(x + dx * length, sheet.x0), sheet.x1)
+        y_end = min(max(y + dy * length, sheet.y0), sheet.y1)
+        page.draw_line((x, y), (x_end, y), color=CROP_MARK_COLOR, width=CROP_MARK_WIDTH_PT)
+        page.draw_line((x, y), (x, y_end), color=CROP_MARK_COLOR, width=CROP_MARK_WIDTH_PT)
 
 
 def bound_reading_order(
