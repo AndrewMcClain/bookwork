@@ -6,8 +6,8 @@
 #
 # Produces a onedir bundle at dist/bookwork/ (dist/bookwork.app on macOS).
 # This spec is written to be correct on Windows/macOS/Linux alike, but has
-# only actually been built and smoke-tested on Linux — see DESIGN.md and
-# README.md for the Windows/macOS build/verify steps still needed.
+# only actually been built and smoke-tested on Linux — see packaging/README.md
+# for the Windows/macOS build and verification steps still needed.
 
 import sys
 

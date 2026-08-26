@@ -2,7 +2,8 @@
 name = "bookwork"
 version = "0.1.0"
 description = "Cross-platform PDF imposition tool for booklet/signature printing"
-license = {text = "GPL-3.0-only"}
+license = "GPL-3.0-or-later"
+license-files = ["COPYING"]
 readme = "README.md"
 authors = [
     { name = "Andrew McClain", email = "andrew.c.mcclain@gmail.com" }

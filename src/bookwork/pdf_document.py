@@ -1,9 +1,27 @@
+# Bookwork — a PDF imposition tool for home book binding
+# Copyright (C) 2026  Andrew McClain
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Thin wrapper around a PyMuPDF (fitz) document.
 
 Keeps all direct `fitz` usage in one place so the rest of the app deals in
 plain Python types (page counts, `QImage`s) rather than `fitz` objects
-directly. This is the seam we'll extend in later milestones (imposition,
-insert/delete page) without touching the viewer widgets.
+directly. `imposition.py` is the one other module that touches `fitz`, since
+it composes pages rather than merely displaying them.
 """
 
 from __future__ import annotations
@@ -89,7 +107,7 @@ class PdfDocument:
     # --- Editing (insert/delete pages) and undo/redo ---
     #
     # Edits happen in memory only (the file on disk is never touched here —
-    # see DESIGN.md §3.2). Undo/redo works by snapshotting the whole document
+    # see docs/design.md). Undo/redo works by snapshotting the whole document
     # as bytes before each edit rather than trying to record/invert
     # individual page operations: simpler and safer to get right, at the
     # cost of an extra full-document copy per edit, which is fine at the

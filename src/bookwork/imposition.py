@@ -1,12 +1,30 @@
+# Bookwork — a PDF imposition tool for home book binding
+# Copyright (C) 2026  Andrew McClain
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Signature-order and 2-up imposition, reimplemented natively against PDFs.
 
-This replaces the manual `psbook | psnup` shell pipeline (see DESIGN.md §2, §8)
+This replaces the manual `psbook | psnup` shell pipeline (see docs/background.md)
 with plain, testable Python. The signature/booklet reordering algorithm below
 was verified against real `psbook` (psutils 3.3.14) output byte-for-byte,
 including how it pads a trailing partial signature with blank sides — see
 `tests/test_imposition.py`.
 
-Terminology (see DESIGN.md §2.3):
+Terminology (see docs/design.md):
 - A "signature" is a group of consecutive pages, printed together and folded
   as one unit. `psbook`'s `-s`/`--signature` option — and this module's
   `signature_size_pages` — count PAGES per signature, not sheets (each sheet
@@ -351,7 +369,7 @@ def impose(src: fitz.Document, params: ImpositionParams | None = None) -> fitz.D
 
     Blank positions (padding pages from `compute_signature_order`) are left
     as blank sheet-side halves — visibly blank in the output, not silently
-    dropped, so pagination problems are visible (see DESIGN.md §3.2, §4.1).
+    dropped, so pagination problems are visible (see docs/design.md).
     """
     params = params or ImpositionParams()
     order = _SignatureLayout.resolve(params, src.page_count).physical_order()

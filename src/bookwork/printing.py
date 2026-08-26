@@ -1,10 +1,28 @@
+# Bookwork — a PDF imposition tool for home book binding
+# Copyright (C) 2026  Andrew McClain
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Printing: render an already-imposed `PdfDocument` onto a `QPrinter`.
 
 Kept separate from the actual print dialog / OS print-spooler interaction
 (that lives in `main_window.py`) so the rendering logic itself — page range
-handling, page size, full-bleed drawing — can be exercised in tests by
-pointing a `QPrinter` at a PDF file instead of a real printer or dialog. See
-`tests/test_printing.py`.
+handling, page size, and fitting the sheet into the printer's real printable
+area — can be exercised in tests by pointing a `QPrinter` at a PDF file
+instead of a real printer or dialog. See `tests/test_printing.py`.
 """
 
 from __future__ import annotations

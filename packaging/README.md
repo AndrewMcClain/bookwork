@@ -100,7 +100,7 @@ this hasn't been an issue when actually launching the built bundle — but if
 `bookwork` ever fails to start elsewhere with an "error while loading shared
 libraries" message, that's the likely list to check with `apt install`.
 
-## Known gaps (see DESIGN.md §6/§7)
+## Known gaps
 
 - No app icon yet (`packaging/bookwork.spec`'s `icon=` is a TODO for the
   macOS bundle; the `.deb`'s desktop entry and Windows icon wiring have the
