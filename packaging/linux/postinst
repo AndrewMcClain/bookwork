@@ -1,0 +1,13 @@
+#!/bin/sh
+# Refresh the desktop entry database so Bookwork shows up in application
+# menus/file-open dialogs right away, without requiring a logout. Best
+# effort: update-desktop-database isn't guaranteed to be installed on every
+# system (it's part of desktop-file-utils), and its absence shouldn't fail
+# the whole package install.
+set -e
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database -q /usr/share/applications || true
+fi
+
+exit 0

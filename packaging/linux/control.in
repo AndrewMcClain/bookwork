@@ -1,0 +1,21 @@
+Package: bookwork
+Version: @VERSION@
+Section: graphics
+Priority: optional
+Architecture: @ARCH@
+Installed-Size: @INSTALLED_SIZE@
+Depends: libc6, libx11-6, libxcb1, libdbus-1-3, libfontconfig1
+Maintainer: Andrew McClain <andrew.c.mcclain@gmail.com>
+Description: Cross-platform PDF imposition tool for booklet/signature printing
+ Bookwork lays out (imposes) the pages of a PDF onto sheets for saddle-stitch
+ or case-bound booklet printing: signature ordering, 2-up placement, margin
+ and gutter control, crop marks, and a bound-preview to catch pagination
+ mistakes before they hit paper.
+ .
+ This package bundles its own Python runtime and all dependencies
+ (PyInstaller); it does not require a separately installed Python or Qt.
+ The Depends listed above cover the base X11/D-Bus/fontconfig libraries
+ the bundled Qt needs that aren't included in the bundle itself -- see
+ packaging/README.md for the full transitive list this was checked
+ against, if bookwork fails to launch with a "shared library not found"
+ error on an unusual (e.g. minimal/headless) system.

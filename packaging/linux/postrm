@@ -1,0 +1,10 @@
+#!/bin/sh
+# Mirror image of postinst: refresh the desktop database after the entry is
+# removed, so a stale Bookwork launcher doesn't linger in application menus.
+set -e
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database -q /usr/share/applications || true
+fi
+
+exit 0

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Bookwork
+Comment=PDF imposition tool for booklet/signature printing
+Exec=/usr/bin/bookwork %f
+Terminal=false
+Categories=Graphics;Publishing;
+MimeType=application/pdf;
