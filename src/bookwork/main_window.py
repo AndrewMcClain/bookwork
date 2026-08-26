@@ -32,7 +32,7 @@ class MainWindow(QMainWindow):
 
         self._source_pane = PdfViewerPane()
         self._imposed_pane = PdfViewerPane()
-        self._bound_preview_pane = PdfViewerPane()
+        self._bound_preview_pane = PdfViewerPane(animate_page_turns=True)
         self._imposition_panel = ImpositionPanel()
         self._imposition_panel.params_changed.connect(self._regenerate_imposed)
         # The params that actually produced the current Imposed document —

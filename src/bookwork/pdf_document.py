@@ -64,6 +64,17 @@ class PdfDocument:
         that needs to operate on it directly rather than through this wrapper."""
         return self._doc
 
+    def page_size(self, index: int) -> tuple[float, float]:
+        """Page `index`'s `(width, height)` in PDF points.
+
+        Lets callers reason about page geometry without rendering — the
+        bound preview mixes full spreads with half-width lone covers, and
+        the turn view needs to tell them apart to know which side of the
+        spine a page sits on.
+        """
+        rect = self._doc[index].rect
+        return rect.width, rect.height
+
     def render_page(self, index: int, dpi: int = DEFAULT_RENDER_DPI) -> QImage:
         """Render page `index` (0-based) to a `QImage` at the given DPI."""
         page = self._doc[index]

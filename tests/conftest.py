@@ -42,3 +42,16 @@ def isolated_qsettings(tmp_path, monkeypatch):
         "bookwork.widgets.imposition_panel.default_settings",
         lambda: QSettings(settings_path, QSettings.Format.IniFormat),
     )
+
+
+@pytest.fixture(autouse=True)
+def instant_page_turns(monkeypatch):
+    """Run page-turn animations instantly in tests.
+
+    `PageTurnView` reads its duration at construction, so patching the
+    constant here means every widget a test builds lands on its final state
+    synchronously. Without this, tests assert against a widget mid-animation
+    and can tear it down while a QPropertyAnimation is still driving it.
+    Tests that specifically exercise the animation set a duration explicitly.
+    """
+    monkeypatch.setattr("bookwork.widgets.page_turn_view.TURN_DURATION_MS", 0)

@@ -27,6 +27,15 @@ class PageView(QScrollArea):
         self.setWidgetResizable(True)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+    def display(self, document, index: int, previous_index: int | None = None) -> None:
+        """Show page `index` of `document`.
+
+        The seam `PdfViewerPane` drives every page view through. This one
+        ignores `previous_index` — it has no transition to run — but
+        `PageTurnView` uses it to decide whether the move is a page turn.
+        """
+        self.set_image(document.render_page(index))
+
     def set_image(self, image: QImage) -> None:
         self._original_image = image
         self._update_displayed_pixmap()

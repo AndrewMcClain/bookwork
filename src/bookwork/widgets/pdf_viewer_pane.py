@@ -11,6 +11,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
 from bookwork.pdf_document import PdfDocument
+from bookwork.widgets.page_turn_view import PageTurnView
 from bookwork.widgets.page_view import PageView
 from bookwork.widgets.thumbnail_list import ThumbnailList
 
@@ -21,13 +22,18 @@ class PdfViewerPane(QWidget):
 
     page_changed = Signal(int, int)
 
-    def __init__(self) -> None:
+    def __init__(self, *, animate_page_turns: bool = False) -> None:
+        """`animate_page_turns` swaps the flat page display for one that
+        animates a leaf turning between adjacent views — meaningful only for
+        the Bound Preview tab, which shows a book. The Source and Imposed
+        tabs show flat sheets, where a turn animation would imply a physical
+        structure that isn't there."""
         super().__init__()
         self.document: PdfDocument | None = None
         self.current_page = 0
 
         self.thumbnail_list = ThumbnailList()
-        self.page_view = PageView()
+        self.page_view = PageTurnView() if animate_page_turns else PageView()
 
         splitter = QSplitter()
         splitter.addWidget(self.thumbnail_list)
@@ -47,7 +53,7 @@ class PdfViewerPane(QWidget):
         self.current_page = 0
 
         self._rebuild_thumbnails()
-        self.show_page(0)
+        self.show_page(0)  # a fresh document has nothing to turn from
 
     def refresh(self) -> None:
         """Re-render thumbnails and the current page from `self.document`,
@@ -79,8 +85,9 @@ class PdfViewerPane(QWidget):
             self.page_changed.emit(0, 0)
             return
         index = max(0, min(index, self.document.page_count - 1))
+        previous_index = self.current_page
         self.current_page = index
-        self.page_view.set_image(self.document.render_page(index))
+        self.page_view.display(self.document, index, previous_index)
         self.thumbnail_list.select_page(index)
         self.page_changed.emit(self.current_page, self.document.page_count)
 

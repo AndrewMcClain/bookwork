@@ -51,6 +51,7 @@ src/bookwork/
   widgets/
     pdf_viewer_pane.py    # thumbnail sidebar + page view, reused per tab
     page_view.py          # single-page display, scaled to fit
+    page_turn_view.py     # animated page turn, for the Bound Preview tab
     thumbnail_list.py     # page thumbnail sidebar; editable on the Source tab
     imposition_panel.py   # signature/sheet/margin/gutter form, presets, stats
 tests/
@@ -71,6 +72,14 @@ reading order. This is the best place to spot an off-by-one or signature
 ordering mistake, since it shows the book exactly as a reader would
 experience it, rather than requiring you to mentally fold/unfold the Imposed
 tab's sheet order.
+
+Moving between adjacent views animates a **page turn**: a leaf rotates about
+the spine carrying the page you're leaving on its front and the page you're
+arriving at on its back, exactly as one physical sheet does. That pairing is
+the point — it's what makes a mispaginated sheet obvious, since a leaf whose
+two sides don't belong together is immediately wrong to look at. Jumping
+several views at once (clicking a distant thumbnail) skips the animation
+rather than implying a motion the book wouldn't make.
 
 **Add blank endpapers (case binding)**, in the Imposed tab's settings panel,
 adds one real blank page at the very front and one at the very back of the
