@@ -136,6 +136,14 @@ desktop app with PyInstaller. Built and smoke-tested on Linux; the spec is
 written to be correct on Windows/macOS too but hasn't been built or run on
 either yet.
 
+## License
+
+Bookwork is licensed under the [GNU General Public License v3](COPYING).
+
+**Note:** Development dependencies (pytest, pytest-qt, pyinstaller) are 
+licensed under permissive licenses (MIT, GPLv2+) and are not included in 
+distributed binaries.
+
 ## Known follow-ups
 
 - The thumbnail sidebar (`widgets/thumbnail_list.py`) has some extra blank
