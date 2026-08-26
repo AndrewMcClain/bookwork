@@ -12,6 +12,7 @@ import os
 
 import pymupdf as fitz
 import pytest
+from PySide6.QtGui import QPageLayout
 from PySide6.QtPrintSupport import QPrinter
 
 from bookwork.pdf_document import PdfDocument
@@ -49,6 +50,26 @@ def test_print_document_page_size_matches_sheet(qtbot, make_pdf, tmp_path):
     page_rect = result[0].rect
     assert page_rect.width == pytest.approx(792.0, abs=1.0)
     assert page_rect.height == pytest.approx(612.0, abs=1.0)
+
+
+def test_configure_printer_sets_landscape_orientation_metadata(qtbot):
+    # The actual bug: pageRect() came out the right shape either way, but a
+    # real printer driver reads the orientation *metadata* (not just the
+    # raw page rect) to decide physical feed direction -- confirmed against
+    # a real printer to matter, not just a Qt-internal technicality.
+    printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+    configure_printer_for_sheet_size(printer, width_pt=792.0, height_pt=612.0)
+    assert printer.pageLayout().orientation() == QPageLayout.Orientation.Landscape
+    assert printer.pageRect(QPrinter.Unit.Point).width() == pytest.approx(792.0, abs=1.0)
+    assert printer.pageRect(QPrinter.Unit.Point).height() == pytest.approx(612.0, abs=1.0)
+
+
+def test_configure_printer_sets_portrait_orientation_metadata(qtbot):
+    printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+    configure_printer_for_sheet_size(printer, width_pt=612.0, height_pt=792.0)
+    assert printer.pageLayout().orientation() == QPageLayout.Orientation.Portrait
+    assert printer.pageRect(QPrinter.Unit.Point).width() == pytest.approx(612.0, abs=1.0)
+    assert printer.pageRect(QPrinter.Unit.Point).height() == pytest.approx(792.0, abs=1.0)
 
 
 def test_print_document_honors_page_range(qtbot, make_pdf, tmp_path):

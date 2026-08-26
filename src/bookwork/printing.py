@@ -10,7 +10,7 @@ pointing a `QPrinter` at a PDF file instead of a real printer or dialog. See
 from __future__ import annotations
 
 from PySide6.QtCore import QRectF, QSizeF
-from PySide6.QtGui import QPageSize, QPainter
+from PySide6.QtGui import QPageLayout, QPageSize, QPainter
 from PySide6.QtPrintSupport import QPrinter
 
 from bookwork.pdf_document import PdfDocument
@@ -33,8 +33,24 @@ def configure_printer_for_sheet_size(printer: QPrinter, width_pt: float, height_
     points) — the imposed sheet size, not a named paper size — and disable
     the printer driver's own default margins, since the imposed content
     already fills the full sheet (crop marks and all) by design.
+
+    `QPageSize`'s own width/height is always treated as the page's
+    *portrait-native* size — `QPrinter`'s separate orientation flag is what
+    actually swaps it round for landscape. Passing an already-landscape
+    `width_pt > height_pt` straight through leaves that flag at its
+    Portrait default: `pageRect()` still ends up the right shape in-app, but
+    the orientation *metadata* a real printer driver reads to decide
+    physical feed direction says Portrait, and it prints portrait,
+    confirmed against a real printer. So: always give `QPageSize` the
+    narrower-first (portrait-native) size, and set the orientation flag
+    explicitly to match what's actually wanted.
     """
-    printer.setPageSize(QPageSize(QSizeF(width_pt, height_pt), QPageSize.Unit.Point))
+    is_landscape = width_pt > height_pt
+    portrait_width, portrait_height = (height_pt, width_pt) if is_landscape else (width_pt, height_pt)
+    printer.setPageSize(QPageSize(QSizeF(portrait_width, portrait_height), QPageSize.Unit.Point))
+    printer.setPageOrientation(
+        QPageLayout.Orientation.Landscape if is_landscape else QPageLayout.Orientation.Portrait
+    )
     printer.setFullPage(True)
 
 
