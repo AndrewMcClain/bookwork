@@ -234,12 +234,12 @@ def _build_sheets(src: fitz.Document, order: list[int | None], params: Impositio
         page = out.new_page(width=params.sheet_width_pt, height=params.sheet_height_pt)
         left_cell = fitz.Rect(0, 0, cell_width, params.sheet_height_pt)
         right_cell = fitz.Rect(cell_width, 0, params.sheet_width_pt, params.sheet_height_pt)
-        _place_in_cell(page, src, left_index, left_cell, params, spine_on_right=True)
-        _place_in_cell(page, src, right_index, right_cell, params, spine_on_right=False)
+        left_content_rect = _place_in_cell(page, src, left_index, left_cell, params, spine_on_right=True)
+        right_content_rect = _place_in_cell(page, src, right_index, right_cell, params, spine_on_right=False)
 
         if params.show_crop_marks:
-            _draw_crop_marks(page, left_cell)
-            _draw_crop_marks(page, right_cell)
+            _draw_crop_marks(page, left_content_rect)
+            _draw_crop_marks(page, right_content_rect)
 
     return out
 
@@ -252,7 +252,7 @@ def _place_in_cell(
     params: ImpositionParams,
     *,
     spine_on_right: bool,
-) -> None:
+) -> fitz.Rect:
     """Place one source page (or leave blank) into one half of a sheet.
 
     The spine runs down the sheet's vertical centerline. `spine_on_right`
@@ -262,10 +262,13 @@ def _place_in_cell(
     (away from the spine on its left). `Page.show_pdf_page`'s own
     proportional-fit-and-center then handles scale-down and centering within
     whatever rect results, so no separate scale parameter is needed.
-    """
-    if source_page_index is None:
-        return
 
+    Returns the rect the page's content actually ends up occupying (or, for
+    a blank cell, the intended target rect) — see `_fitted_content_rect` and
+    `_draw_crop_marks`. This is *not* necessarily `target` below: if the
+    source page's aspect ratio doesn't match `target`'s, `keep_proportion`
+    shrinks it further and centers it, leaving asymmetric blank space.
+    """
     x0 = cell.x0 + params.margin_pt
     x1 = cell.x1 - params.margin_pt
     y0 = cell.y0 + params.margin_pt
@@ -277,26 +280,45 @@ def _place_in_cell(
         x0 += params.gutter_pt
 
     target = fitz.Rect(x0, y0, x1, y1)
+    if source_page_index is None:
+        return target
+
     page.show_pdf_page(target, src, source_page_index, keep_proportion=True)
+    return _fitted_content_rect(src[source_page_index].rect, target)
 
 
-def _draw_crop_marks(page: fitz.Page, cell: fitz.Rect) -> None:
-    """Draw a small "+" at each of `cell`'s four corners.
+def _fitted_content_rect(source_rect: fitz.Rect, target: fitz.Rect) -> fitz.Rect:
+    """The rect `source_rect` actually ends up occupying within `target` when
+    placed via `show_pdf_page(target, ..., keep_proportion=True)`: scaled to
+    fit (preserving aspect ratio) and centered. Reproduces PyMuPDF's own
+    placement math so crop marks can be drawn at the *real* content edge
+    rather than `target`'s — verified empirically to match exactly.
+    """
+    if source_rect.width <= 0 or source_rect.height <= 0 or target.width <= 0 or target.height <= 0:
+        return target
+    scale = min(target.width / source_rect.width, target.height / source_rect.height)
+    width = source_rect.width * scale
+    height = source_rect.height * scale
+    x0 = target.x0 + (target.width - width) / 2
+    y0 = target.y0 + (target.height - height) / 2
+    return fitz.Rect(x0, y0, x0 + width, y0 + height)
 
-    `cell` is the cell's full trim boundary (not the margin-inset content
-    area), so the two corners on the spine side mark the fold line (both
-    cells share those points exactly, so their marks coincide), and the
-    outer two corners mark the sheet's own outer edge.
 
-    Each arm is clamped to the physical sheet (`page.rect`): at the spine
-    corners, which sit mid-page, the full "+" is visible; at the sheet's
-    outer corners, half of a full "+" would fall outside the sheet and be
-    invisible (there's no bleed area beyond the sheet edge to draw into), so
-    those become inward-pointing "L" marks instead.
+def _draw_crop_marks(page: fitz.Page, content_rect: fitz.Rect) -> None:
+    """Draw a small "+" at each of `content_rect`'s four corners, marking
+    where to trim down to the real edge of the placed page content — not a
+    fixed nominal boundary, which (per `_place_in_cell`) may not match it if
+    the source page's aspect ratio leaves it scaled smaller and centered.
+
+    Each arm is clamped to the physical sheet (`page.rect`): a mark whose
+    content rect happens to sit exactly at the sheet's own edge would
+    otherwise have half its "+" fall outside the sheet and be invisible
+    (there's no bleed area beyond the sheet edge to draw into) — it becomes
+    an inward-pointing "L" there instead.
     """
     half = CROP_MARK_LENGTH_PT / 2
     sheet = page.rect
-    for x, y in (cell.tl, cell.tr, cell.bl, cell.br):
+    for x, y in (content_rect.tl, content_rect.tr, content_rect.bl, content_rect.br):
         x0, x1 = max(sheet.x0, x - half), min(sheet.x1, x + half)
         y0, y1 = max(sheet.y0, y - half), min(sheet.y1, y + half)
         page.draw_line((x0, y), (x1, y), color=CROP_MARK_COLOR, width=CROP_MARK_WIDTH_PT)

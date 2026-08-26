@@ -19,6 +19,7 @@ from bookwork.imposition import (
     compute_stats,
     impose,
 )
+from bookwork.imposition import _fitted_content_rect
 
 
 def test_signature_order_matches_psbook_s8_two_full_signatures():
@@ -184,6 +185,54 @@ def test_crop_marks_can_be_disabled(make_pdf):
     out = impose(src, ImpositionParams(signature_size_pages=4, show_crop_marks=False))
     drawings = out[0].get_drawings()
     assert len(drawings) == 0
+
+
+def test_fitted_content_rect_matches_target_when_aspect_ratio_equal():
+    source = fitz.Rect(0, 0, 400, 800)  # aspect 0.5
+    target = fitz.Rect(10, 10, 210, 410)  # 200x400, same aspect
+    assert _fitted_content_rect(source, target) == target
+
+
+def test_fitted_content_rect_letterboxes_a_narrower_source():
+    # Empirically verified against PyMuPDF's own show_pdf_page(...,
+    # keep_proportion=True) placement before trusting this formula.
+    source = fitz.Rect(0, 0, 400, 800)
+    target = fitz.Rect(50, 50, 550, 550)  # 500x500 square
+    assert _fitted_content_rect(source, target) == fitz.Rect(175, 50, 425, 550)
+
+
+def test_crop_marks_track_the_actual_content_edge_not_the_fixed_cell(make_pdf):
+    # A source page much narrower than its cell gets letterboxed (centered,
+    # with blank space left/right) by keep_proportion; crop marks must sit
+    # at the real, narrower content edge -- not out at the cell's own fixed
+    # boundary, which would no longer be "how much to cut it down to."
+    path = make_pdf(num_pages=4, page_size=(300, 792))
+    src = fitz.open(path)
+    params = ImpositionParams(signature_size_pages=4, margin_pt=18, gutter_pt=18)
+    out = impose(src, params)
+    page = out[0]
+
+    cell_width = params.sheet_width_pt / 2  # 396
+    mark_xs = {
+        point.x
+        for drawing in page.get_drawings()
+        for item in drawing["items"]
+        for point in item[1:]
+        if hasattr(point, "x")
+    }
+    left_cell_marks = [x for x in mark_xs if x < cell_width]
+
+    # The old (buggy) behavior put marks at the cell's own fixed boundary
+    # (x=0 and x=cell_width, i.e. the sheet/fold edges); the fix must place
+    # them well inside that, at the actual letterboxed content edge.
+    assert min(left_cell_marks) > 0
+    assert max(left_cell_marks) < cell_width
+    # And they should be reasonably close to the hand-computed fitted rect
+    # (avail area x=[18, 360], y=[18, 594]; 300x792 source -> scale limited
+    # by height (576/792), width 218.18, centered -> content x=[79.9, 298.1]
+    # -- each mark's horizontal arm extends 5pt either side of that corner).
+    assert min(left_cell_marks) == pytest.approx(79.9 - 5, abs=0.5)
+    assert max(left_cell_marks) == pytest.approx(298.1 + 5, abs=0.5)
 
 
 def test_bound_reading_order_matches_psbook_s8_reference():
