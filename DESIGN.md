@@ -1,10 +1,15 @@
 # Bookwork — Design Doc
 
 Status: **draft / living document** — updated as decisions get made.
-Last updated: 2026-08-25 — v2 done: interactive page insert/delete with
-undo/redo on the Source tab, live-regenerating Imposed/Bound Preview.
-(v1: native imposition pipeline + Imposed tab; corrected `psbook -s` unit
-(pages, not sheets) per §2.1 after testing against real `psbook`.)
+Last updated: 2026-08-25 — v3 done: `QPrinter` printing, saved presets
+(`QSettings`), and a first PyInstaller build (Linux verified; Windows/macOS
+unverified — see packaging/README.md). Also: crop marks now track the
+actual placed-content edge, not a fixed cell boundary (was a real bug);
+separate wrap-cover imposition mode added.
+(v2: interactive page insert/delete with undo/redo on the Source tab,
+live-regenerating Imposed/Bound Preview. v1: native imposition pipeline +
+Imposed tab; corrected `psbook -s` unit (pages, not sheets) per §2.1 after
+testing against real `psbook`.)
 
 ## 1. Vision
 
@@ -243,9 +248,22 @@ padding/correction is explicitly out of scope until there's a viewer to judge it
    feeding straight into the v1 imposition view so the user can add/remove a
    page and immediately see the effect on signature layout — this is the primary tool for catching
    off-by-one/pagination issues before printing.
-4. **v3 — Print integration**: in-app print via `QPrinter`, saved presets per
-   paper size / signature size / printer; first packaged builds (PyInstaller/
-   Briefcase) for Windows/macOS/Linux.
+4. **v3 — Print integration** *(done)*: in-app print via `QPrinter`
+   (`src/bookwork/printing.py`), sized/duplexed to the imposed sheet,
+   full-bleed so the driver's own margins don't clip crop marks; saved
+   presets for the full imposition parameter set, persisted via `QSettings`
+   (`src/bookwork/presets.py`); first packaged build via PyInstaller
+   (`packaging/`) — built and smoke-tested on Linux, Windows/macOS
+   unverified (no access to those OSes — see `packaging/README.md`).
+
+   Along the way (not originally scoped in this milestone, added on
+   request): a **separate wrap-cover** imposition mode (§3.1's
+   `separate_cover`) — first/last page as their own single-folio cover
+   wrapping the interior signatures, as distinct from the case-binding
+   `include_endpapers` mode — and a real bug fix to crop marks, which had
+   been drawn at a fixed cell boundary regardless of where content actually
+   landed after aspect-ratio-driven scaling; they now track the real placed
+   page edge.
 
 ## 8. Reference: original manual process (verbatim, for posterity)
 

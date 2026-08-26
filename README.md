@@ -5,8 +5,9 @@ A cross-platform (Windows/macOS/Linux) desktop tool for
 printing: view a PDF, reorder and arrange pages 2-up per sheet, and produce a
 print-ready file. See [DESIGN.md](DESIGN.md) for the project's design doc and roadmap.
 
-**Status:** early development — milestone v3 in progress (print integration
-and saved presets done; packaged builds next).
+**Status:** early development — milestone v3 done (print integration, saved
+presets, first packaged build — Linux verified, Windows/macOS unverified;
+see [packaging/README.md](packaging/README.md)).
 
 ## Requirements
 
@@ -105,7 +106,17 @@ you open — save one once (e.g. "Digest booklet"), and it stays available.
 Picking a preset applies it immediately, unlike other field edits which wait
 for Apply.
 
+## Packaging
+
+See [packaging/README.md](packaging/README.md) for building a standalone
+desktop app with PyInstaller. Built and smoke-tested on Linux; the spec is
+written to be correct on Windows/macOS too but hasn't been built or run on
+either yet.
+
 ## Known follow-ups
 
 - The thumbnail sidebar (`widgets/thumbnail_list.py`) has some extra blank
   space in its layout that needs a pass — cosmetic, not functional.
+- Windows/macOS packaged builds are unverified (no access to those OSes) —
+  see packaging/README.md.
+- No app icon, code signing, or notarization yet.
