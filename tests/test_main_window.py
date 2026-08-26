@@ -483,3 +483,94 @@ def test_pad_last_signature_to_full_checkbox_toggles_padding_behavior(qtbot, mak
     assert window._imposed_pane.document.page_count == 12
     stats_text = window._imposition_panel._stats_label.text()
     assert "8 pages/signature, 3 signatures" in stats_text
+
+
+def test_bound_preview_pages_by_click_and_arrow_keys(qtbot, make_pdf):
+    """Click a page to turn it, or use the arrow keys — both drive the same
+    navigation the menu and thumbnails do, so the status bar and thumbnail
+    selection stay in step."""
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+
+    path = make_pdf(num_pages=12)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_pdf(str(path))
+    window._tabs.setCurrentIndex(2)  # Bound Preview
+
+    pane = window._bound_preview_pane
+    view = pane.page_view
+    assert pane.current_page == 0
+
+    def click(fraction):
+        QTest.mouseClick(
+            view, Qt.MouseButton.LeftButton, pos=QPoint(int(view.width() * fraction), view.height() // 2)
+        )
+
+    click(0.75)
+    assert pane.current_page == 1
+    click(0.25)
+    assert pane.current_page == 0
+
+    QTest.keyClick(view, Qt.Key.Key_Right)
+    assert pane.current_page == 1
+    QTest.keyClick(view, Qt.Key.Key_Left)
+    assert pane.current_page == 0
+
+    assert pane.thumbnail_list.currentRow() == 0
+    assert "Page 1 of" in window.statusBar().currentMessage()
+
+
+def test_bound_preview_navigation_stops_at_both_ends(qtbot, make_pdf):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    path = make_pdf(num_pages=12)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_pdf(str(path))
+    window._tabs.setCurrentIndex(2)
+    pane = window._bound_preview_pane
+    last = pane.document.page_count - 1
+
+    for _ in range(last + 5):
+        QTest.keyClick(pane.page_view, Qt.Key.Key_Right)
+    assert pane.current_page == last
+
+    for _ in range(last + 5):
+        QTest.keyClick(pane.page_view, Qt.Key.Key_Left)
+    assert pane.current_page == 0
+
+
+def test_arrow_keys_still_reach_the_imposition_panel_fields(qtbot, make_pdf):
+    """The page view claims Left/Right, so it must do so as a focused widget
+    rather than as an application shortcut — otherwise it would steal the
+    arrow keys from every text cursor and spinbox in the settings panel."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    path = make_pdf(num_pages=8)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_pdf(str(path))
+    window._tabs.setCurrentIndex(1)  # Imposed
+
+    spin = window._imposition_panel._signature_size
+    spin.setFocus()
+    before = spin.value()
+    QTest.keyClick(spin, Qt.Key.Key_Left)
+
+    assert spin.value() == before
+
+
+def test_only_the_bound_preview_animates_turns(qtbot, make_pdf):
+    """Source and Imposed show flat sheets; a turn animation there would
+    imply a physical structure that isn't in the output."""
+    from bookwork.widgets.page_turn_view import PageTurnView
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    assert isinstance(window._bound_preview_pane.page_view, PageTurnView)
+    assert not isinstance(window._source_pane.page_view, PageTurnView)
+    assert not isinstance(window._imposed_pane.page_view, PageTurnView)

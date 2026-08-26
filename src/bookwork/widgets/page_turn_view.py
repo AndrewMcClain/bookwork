@@ -22,8 +22,8 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import Property, QEasingCurve, QPointF, QPropertyAnimation, QRect, Qt
-from PySide6.QtGui import QColor, QPainter, QPixmap, QPolygonF, QTransform
+from PySide6.QtCore import Property, QEasingCurve, QPointF, QPropertyAnimation, QRect, Qt, Signal
+from PySide6.QtGui import QColor, QCursor, QPainter, QPixmap, QPolygonF, QTransform
 from PySide6.QtWidgets import QWidget
 
 from bookwork.pdf_document import PdfDocument
@@ -86,17 +86,26 @@ def leaf_projection(
     lift = LEAF_LIFT_FRACTION * page_h * math.sin(theta)
     outer_x = spine_x - projected_w if showing_back else spine_x + projected_w
 
-    # The source's top-left corner always maps to the spine and its
-    # top-right to the outer edge; spine-side corners keep full height while
-    # the outer edge is foreshortened by `lift`. Mirroring the back face
-    # needs no special case — once `outer_x` crosses to the left of the
-    # spine the same corner order describes a flipped page, which is exactly
-    # what the back of a sheet looks like.
+    # Which of the page's own edges meets the spine flips at the halfway
+    # point, and that is what keeps the back face readable rather than
+    # mirrored. A recto is bound along its left edge, so its left-hand
+    # corners sit at the spine; the verso on the other side of the same
+    # sheet is bound along its *right* edge, so its right-hand corners do.
+    # Pinning the source's top-left corner to the spine throughout would
+    # instead show the verso reversed for the whole second half of the turn
+    # and then snap it upright the moment the turn ended.
+    #
+    # Either way it is the outer edge — the one away from the spine — that
+    # gets foreshortened by `lift`, since that is the edge farther from the
+    # eye. Corners are returned in `_SRC_CORNERS` order.
+    spine_top = (spine_x, top_y)
+    spine_bottom = (spine_x, top_y + page_h)
+    outer_top = (outer_x, top_y + lift)
+    outer_bottom = (outer_x, top_y + page_h - lift)
     corners = (
-        (spine_x, top_y),
-        (outer_x, top_y + lift),
-        (outer_x, top_y + page_h - lift),
-        (spine_x, top_y + page_h),
+        (outer_top, spine_top, spine_bottom, outer_bottom)
+        if showing_back
+        else (spine_top, outer_top, outer_bottom, spine_bottom)
     )
     return QPolygonF([QPointF(x, y) for x, y in corners]), showing_back
 
@@ -139,6 +148,12 @@ class PageTurnView(QWidget):
     """Shows one bound-preview view, animating a leaf when moving between
     adjacent views. See the module docstring."""
 
+    #: Asks to move `delta` views (-1 back, +1 forward). Emitted rather than
+    #: navigating directly so the view stays ignorant of the document's
+    #: bounds and of the thumbnail strip that has to stay in step —
+    #: `PdfViewerPane` owns both.
+    step_requested = Signal(int)
+
     def __init__(self) -> None:
         super().__init__()
         self._document: PdfDocument | None = None
@@ -156,6 +171,10 @@ class PageTurnView(QWidget):
 
         self.setMinimumSize(240, 180)
         self.setAutoFillBackground(False)
+        # Clicking a page turns it, so take focus on click and accept the
+        # arrow keys once focused.
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
     # --- Animation plumbing ---
 
@@ -358,3 +377,34 @@ class PageTurnView(QWidget):
         painter.restore()
         painter.setPen(_PAGE_EDGE)
         painter.drawPolygon(destination)
+
+    # --- Navigation ---
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        """Click a page to turn it: the left page goes back, the right page
+        goes forward — the same halves you would physically take hold of."""
+        if event.button() != Qt.MouseButton.LeftButton or self._is_empty():
+            super().mousePressEvent(event)
+            return
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
+        self.step_requested.emit(-1 if event.position().x() < self.width() / 2 else 1)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        """Left/Right page through the book, matching the direction the
+        pages themselves move."""
+        steps = {Qt.Key.Key_Left: -1, Qt.Key.Key_Right: 1}
+        step = steps.get(Qt.Key(event.key()))
+        if step is None or self._is_empty():
+            super().keyPressEvent(event)
+            return
+        event.accept()
+        self.step_requested.emit(step)
+
+    def showEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        """Take focus when the tab becomes visible, so the arrow keys work
+        without having to click first. Deliberately tied to becoming visible
+        rather than to `display()`, which also runs while this tab is hidden
+        every time the imposition is regenerated — grabbing focus then would
+        yank it out of whatever field the user was editing."""
+        super().showEvent(event)
+        self.setFocus(Qt.FocusReason.OtherFocusReason)

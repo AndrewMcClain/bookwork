@@ -33,7 +33,11 @@ class PdfViewerPane(QWidget):
         self.current_page = 0
 
         self.thumbnail_list = ThumbnailList()
-        self.page_view = PageTurnView() if animate_page_turns else PageView()
+        if animate_page_turns:
+            self.page_view = PageTurnView()
+            self.page_view.step_requested.connect(self._step_pages)
+        else:
+            self.page_view = PageView()
 
         splitter = QSplitter()
         splitter.addWidget(self.thumbnail_list)
@@ -90,6 +94,11 @@ class PdfViewerPane(QWidget):
         self.page_view.display(self.document, index, previous_index)
         self.thumbnail_list.select_page(index)
         self.page_changed.emit(self.current_page, self.document.page_count)
+
+    def _step_pages(self, delta: int) -> None:
+        """Move `delta` views from wherever we are. `show_page` clamps, so a
+        step off either end simply stays put."""
+        self.show_page(self.current_page + delta)
 
     def go_previous(self) -> None:
         self.show_page(self.current_page - 1)

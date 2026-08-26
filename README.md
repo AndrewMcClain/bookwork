@@ -81,6 +81,11 @@ two sides don't belong together is immediately wrong to look at. Jumping
 several views at once (clicking a distant thumbnail) skips the animation
 rather than implying a motion the book wouldn't make.
 
+Turn pages by **clicking the page you want to turn** — the left page goes
+back, the right page goes forward — or with the **left/right arrow keys**
+once the tab has focus (switching to it focuses the book automatically). The
+thumbnail sidebar and the View menu still work as before.
+
 **Add blank endpapers (case binding)**, in the Imposed tab's settings panel,
 adds one real blank page at the very front and one at the very back of the
 *actual printed output* (not just the preview) — for gluing the text block
