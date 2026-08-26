@@ -86,6 +86,12 @@ back, the right page goes forward — or with the **left/right arrow keys**
 once the tab has focus (switching to it focuses the book automatically). The
 thumbnail sidebar and the View menu still work as before.
 
+You can also **drag a page across**, and the leaf follows the pointer, so the
+turn happens at whatever pace your hand moves. Let go past halfway and it
+carries on and the page changes; let go short of that and it falls back where
+it came from, leaving the page as it was. Dragging the whole way over
+finishes immediately — it is already where it was going.
+
 The turning leaf **bows** as it goes over, rather than swinging across flat
 like a card, and shades along the curl. The pages already turned and those
 still to come are drawn as **edge stacks** either side of the spine, at the

@@ -111,6 +111,15 @@ _LEAF_SHADE_ALPHA = 46
 _CAST_SHADOW_ALPHA = 52
 _CAST_SHADOW_REACH = 0.45
 
+#: Pointer travel before a press counts as a drag rather than a click. Below
+#: this a click still pages, so the two gestures coexist on one button.
+_DRAG_THRESHOLD_PX = 5
+
+#: Released past this much of the turn, the leaf carries on and the page
+#: changes; short of it, it falls back where it came from. Half is the
+#: honest place for it — the leaf goes wherever it was nearer to.
+_DRAG_COMMIT_FRACTION = 0.5
+
 _BACKGROUND = QColor(236, 236, 239)
 _PAGE_EDGE = QColor(190, 190, 196)
 _STACK_FILL = QColor(246, 245, 242)
@@ -283,6 +292,7 @@ class _Turn:
         leaf_back: QPixmap | None,
         earlier_index: int,
         later_index: int,
+        forward: bool,
     ) -> None:
         self.left_static = left_static
         self.right_static = right_static
@@ -290,6 +300,21 @@ class _Turn:
         self.leaf_back = leaf_back
         self.earlier_index = earlier_index
         self.later_index = later_index
+        self.forward = forward
+
+    @property
+    def target_index(self) -> int:
+        """The view this turn arrives at if it runs to completion."""
+        return self.later_index if self.forward else self.earlier_index
+
+    @property
+    def settled_progress(self) -> float:
+        """The progress value at which this turn has completed."""
+        return 1.0 if self.forward else 0.0
+
+    @property
+    def start_progress(self) -> float:
+        return 0.0 if self.forward else 1.0
 
 
 class PageTurnView(QWidget):
@@ -312,6 +337,8 @@ class PageTurnView(QWidget):
         self._turn: _Turn | None = None
         self._backdrop: QPixmap | None = None
         self._progress = 0.0
+        self._press_origin: QPointF | None = None
+        self._dragging = False
         self._turn_duration_ms = TURN_DURATION_MS
 
         self._animation = QPropertyAnimation(self, b"turn_progress", self)
@@ -370,6 +397,16 @@ class PageTurnView(QWidget):
         self._document = document
 
         step = 0 if previous_index is None or document_changed else index - previous_index
+
+        # A drag that was released past the halfway point already set its
+        # leaf running toward this very view before telling the pane. Left to
+        # itself the pane would then start a second turn over the top of it,
+        # snapping the leaf back to the start; instead let the one in flight
+        # land.
+        if not document_changed and self._turn is not None and self._turn.target_index == index:
+            self._index = index
+            return
+
         self._index = index
         self._backdrop = None
 
@@ -383,6 +420,8 @@ class PageTurnView(QWidget):
 
     def clear(self) -> None:
         self._animation.stop()
+        self._press_origin = None
+        self._dragging = False
         self._document = None
         self._turn = None
         self._backdrop = None
@@ -446,25 +485,46 @@ class PageTurnView(QWidget):
             pixmap.copy(half, 0, pixmap.width() - half, pixmap.height()),
         )
 
-    def _start_turn(self, *, forward: bool) -> None:
-        """Set up the leaf between the previous view and `self._index`.
+    def _prepare_turn(self, earlier: int, later: int, *, forward: bool) -> bool:
+        """Assemble the leaf between two adjacent views, ready to be driven
+        either by the animation or by a drag. Returns False when there is no
+        such leaf — at either end of the book there is nothing to turn.
 
-        A backward turn is the same leaf as the forward one between the same
-        pair of views, played in reverse — so both directions are described
-        by a single forward setup plus the direction the progress runs.
+        A backward turn is the same physical leaf as the forward one across
+        the same gap, so both directions share this one setup and differ
+        only in which end the progress runs toward.
         """
-        earlier = self._index - 1 if forward else self._index
-        later = self._index if forward else self._index + 1
-
+        if self._document is None or earlier < 0 or later >= self._document.page_count:
+            return False
         left_static, leaf_front = self._halves(earlier)
         leaf_back, right_static = self._halves(later)
-        self._turn = _Turn(left_static, right_static, leaf_front, leaf_back, earlier, later)
+        self._turn = _Turn(
+            left_static, right_static, leaf_front, leaf_back, earlier, later, forward
+        )
+        self._backdrop = None  # the static pages either side of the leaf changed
+        return True
 
+    def _start_turn(self, *, forward: bool) -> None:
+        """Set up and animate the leaf between the previous view and
+        `self._index`, which `display` has already moved to the target."""
+        earlier = self._index - 1 if forward else self._index
+        later = self._index if forward else self._index + 1
+        if not self._prepare_turn(earlier, later, forward=forward):
+            return
+        self._animate_to(self._turn.settled_progress, from_progress=self._turn.start_progress)
+
+    def _animate_to(self, end: float, *, from_progress: float | None = None) -> None:
+        """Run the leaf to `end`, over a duration proportional to how far it
+        still has to go — a leaf released close to the stack should drop
+        onto it rather than take a full turn's worth of time to cover the
+        last sliver."""
+        start = self._progress if from_progress is None else from_progress
+        self._progress = start
+        remaining = abs(end - start)
         self._animation.stop()
-        self._animation.setDuration(self._turn_duration_ms)
-        self._animation.setStartValue(0.0 if forward else 1.0)
-        self._animation.setEndValue(1.0 if forward else 0.0)
-        self._progress = self._animation.startValue()
+        self._animation.setDuration(max(int(self._turn_duration_ms * remaining), 0))
+        self._animation.setStartValue(start)
+        self._animation.setEndValue(end)
         self._animation.start()
 
     # --- Painting ---
@@ -748,13 +808,105 @@ class PageTurnView(QWidget):
     # --- Navigation ---
 
     def mousePressEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        """Click a page to turn it: the left page goes back, the right page
-        goes forward — the same halves you would physically take hold of."""
+        """Take hold of a page. Nothing moves yet — whether this becomes a
+        click or a drag is only known once the pointer does or doesn't
+        travel (see `mouseMoveEvent`)."""
         if event.button() != Qt.MouseButton.LeftButton or self._is_empty():
             super().mousePressEvent(event)
             return
         self.setFocus(Qt.FocusReason.MouseFocusReason)
-        self.step_requested.emit(-1 if event.position().x() < self.width() / 2 else 1)
+        self._press_origin = event.position()
+        self._dragging = False
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        """Drag a page across and the leaf follows the pointer, so the turn
+        happens at whatever pace the hand moves rather than a fixed one."""
+        if self._press_origin is None:
+            super().mouseMoveEvent(event)
+            return
+        if not self._dragging:
+            travelled = (event.position() - self._press_origin).manhattanLength()
+            if travelled < _DRAG_THRESHOLD_PX:
+                return
+            if not self._begin_drag():
+                self._press_origin = None  # nothing to turn on that side
+                return
+        self._animation.stop()
+        self.turn_progress = self._progress_at(event.position().x())
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 (Qt override)
+        """Let go. A press that never travelled is a click and pages as
+        before; a drag settles whichever way it was nearer to."""
+        if event.button() != Qt.MouseButton.LeftButton or self._press_origin is None:
+            super().mouseReleaseEvent(event)
+            return
+        origin, dragging = self._press_origin, self._dragging
+        self._press_origin = None
+        self._dragging = False
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+
+        if not dragging:
+            self.step_requested.emit(-1 if origin.x() < self.width() / 2 else 1)
+            return
+        self._settle_drag()
+
+    def _begin_drag(self) -> bool:
+        """Assemble the leaf under the pointer. Which one it is follows the
+        half of the spread the press landed on — the same halves a click
+        uses, and the ones you would physically take hold of."""
+        forward = self._press_origin.x() >= self.width() / 2
+        earlier = self._index if forward else self._index - 1
+        later = self._index + 1 if forward else self._index
+        if not self._prepare_turn(earlier, later, forward=forward):
+            return False
+        self._dragging = True
+        self._progress = self._turn.start_progress
+        self.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
+        return True
+
+    def _progress_at(self, pointer_x: float) -> float:
+        """Where in the turn the leaf has to be for its fore edge to sit
+        under the pointer.
+
+        The fore edge follows `cos(theta)` across a page width either side of
+        the spine (see `leaf_curve`), so inverting that puts the edge of the
+        page under the finger — which is what makes the drag feel attached to
+        the paper rather than merely correlated with it.
+
+        Inverting `cos` alone ignores the slight foreshortening the curl adds,
+        which is not invertible in closed form. Measured, that leaves the edge
+        at most about 2% of a page width from the pointer, exact at both ends
+        and at the spine — far below anything the hand notices, and not worth
+        iterating for.
+        """
+        page_w, _, _ = book_layout(
+            self.width(), self.height(), self._spread_width_pt / 2, self._page_height_pt
+        )
+        if page_w <= 0:
+            return self._progress
+        fraction = (pointer_x - self.width() / 2) / page_w
+        return math.acos(max(-1.0, min(1.0, fraction))) / math.pi
+
+    def _settle_drag(self) -> None:
+        """Run the released leaf to whichever end it was nearer, and tell
+        the pane only if the page actually changed."""
+        if self._turn is None:
+            return
+        turn = self._turn
+        past_halfway = (
+            self._progress > _DRAG_COMMIT_FRACTION
+            if turn.forward
+            else self._progress < _DRAG_COMMIT_FRACTION
+        )
+        if not past_halfway:
+            self._animate_to(turn.start_progress)
+            return
+
+        # Start the leaf on its way *before* announcing the move: `display`
+        # spots the turn already heading for this view and lets it land
+        # instead of starting another.
+        self._animate_to(turn.settled_progress)
+        self.step_requested.emit(1 if turn.forward else -1)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802 (Qt override)
         """Left/Right page through the book, matching the direction the

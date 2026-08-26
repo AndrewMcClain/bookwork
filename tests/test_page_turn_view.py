@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import pymupdf as fitz
 import pytest
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QMouseEvent, QPixmap
+from PySide6.QtWidgets import QApplication
 
 from bookwork.imposition import ImpositionParams, build_bound_preview, impose
 from bookwork.pdf_document import PdfDocument
@@ -630,3 +631,186 @@ def test_shadow_strength_is_continuous(qtbot):
     """No step anywhere across the turn — a jump would show as a flicker."""
     steps = [cast_shadow_strength(i / 200) for i in range(201)]
     assert max(abs(b - a) for a, b in zip(steps, steps[1:])) < 0.05
+
+
+# --- Drag to turn ---
+
+
+def _press(view, fraction):
+    x = view.width() * fraction
+    pos = QPointF(x, view.height() / 2)
+    QApplication.sendEvent(
+        view,
+        QMouseEvent(
+            QEvent.Type.MouseButtonPress, pos, pos,
+            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+        ),
+    )
+
+
+def _move(view, fraction):
+    x = view.width() * fraction
+    pos = QPointF(x, view.height() / 2)
+    QApplication.sendEvent(
+        view,
+        QMouseEvent(
+            QEvent.Type.MouseMove, pos, pos,
+            Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+        ),
+    )
+
+
+def _release(view, fraction):
+    x = view.width() * fraction
+    pos = QPointF(x, view.height() / 2)
+    QApplication.sendEvent(
+        view,
+        QMouseEvent(
+            QEvent.Type.MouseButtonRelease, pos, pos,
+            Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+        ),
+    )
+
+
+def _drag(view, start, end, steps=6):
+    _press(view, start)
+    for i in range(1, steps + 1):
+        _move(view, start + (end - start) * i / steps)
+    progress_at_release = view.turn_progress
+    _release(view, end)
+    return progress_at_release
+
+
+def test_dragging_the_leaf_past_halfway_turns_the_page(qtbot, bound_preview):
+    view = _view(qtbot, duration_ms=0)
+    view.display(bound_preview, 1)
+    steps = []
+    view.step_requested.connect(steps.append)
+
+    released_at = _drag(view, 0.80, 0.15)
+
+    assert released_at > 0.5
+    assert steps == [1]
+
+
+def test_letting_go_short_of_halfway_puts_the_page_back(qtbot, bound_preview):
+    """The leaf falls back where it came from and the page does not change,
+    so a hesitant drag is not a commitment."""
+    view = _view(qtbot, duration_ms=0)
+    view.display(bound_preview, 1)
+    steps = []
+    view.step_requested.connect(steps.append)
+
+    released_at = _drag(view, 0.80, 0.62)
+
+    assert released_at < 0.5
+    assert steps == []
+
+
+def test_dragging_the_left_page_goes_back(qtbot, bound_preview):
+    view = _view(qtbot, duration_ms=0)
+    view.display(bound_preview, 2)
+    steps = []
+    view.step_requested.connect(steps.append)
+
+    _drag(view, 0.20, 0.85)
+
+    assert steps == [-1]
+
+
+def test_a_press_that_does_not_travel_is_still_a_click(qtbot, bound_preview):
+    """Click and drag share one button, so a press has to stay ambiguous
+    until the pointer does or doesn't move."""
+    view = _view(qtbot, duration_ms=0)
+    view.display(bound_preview, 1)
+    steps = []
+    view.step_requested.connect(steps.append)
+
+    _press(view, 0.80)
+    _move(view, 0.802)  # a twitch, well under the drag threshold
+    _release(view, 0.802)
+
+    assert steps == [1]
+    assert view._dragging is False
+
+
+def test_nothing_moves_on_press_alone(qtbot, bound_preview):
+    """Acting on press would make every drag start with a jump."""
+    view = _view(qtbot, duration_ms=0)
+    view.display(bound_preview, 1)
+    steps = []
+    view.step_requested.connect(steps.append)
+
+    _press(view, 0.80)
+
+    assert steps == []
+    assert view._turn is None
+
+
+def test_dragging_the_leaf_follows_the_pointer(qtbot, bound_preview):
+    """The fore edge sits under the finger rather than merely correlating
+    with it — that is what makes the paper feel attached to the hand."""
+    view = _view(qtbot, duration_ms=0)
+    view.display(bound_preview, 1)
+    page_w, page_h, _ = book_layout(
+        view.width(), view.height(), view._spread_width_pt / 2, view._page_height_pt
+    )
+    spine = view.width() / 2
+
+    _press(view, 0.80)
+    for fraction in (0.70, 0.55, 0.40, 0.25):
+        _move(view, fraction)
+        fore_edge = leaf_curve(view.turn_progress, page_w, page_h, spine, 0.0).samples[-1].x
+        assert abs(fore_edge - view.width() * fraction) < page_w * 0.05
+    _release(view, 0.25)
+
+
+def test_dragging_off_the_end_of_the_book_does_nothing(qtbot, bound_preview):
+    """There is no leaf past the last page to take hold of."""
+    view = _view(qtbot, duration_ms=0)
+    last = bound_preview.page_count - 1
+    view.display(bound_preview, last)
+    steps = []
+    view.step_requested.connect(steps.append)
+
+    _drag(view, 0.80, 0.15)
+
+    assert view._turn is None
+    assert steps == []
+
+
+def test_a_committed_drag_is_not_restarted_by_the_pane(qtbot, bound_preview):
+    """The drag sets its leaf running before announcing the move. If
+    `display` started a second turn over the top, the leaf would snap back
+    to the beginning just as the reader let go of it.
+    """
+    view = _view(qtbot)
+    view.display(bound_preview, 1)
+
+    # Released past halfway but short of the far side, so there is still
+    # some turn left to run — a drag taken all the way over finishes on the
+    # spot and has nothing in flight to protect.
+    released_at = _drag(view, 0.80, 0.30)
+    assert 0.5 < released_at < 1.0
+    mid_flight = view._turn
+    assert mid_flight is not None
+
+    view.display(bound_preview, 2, previous_index=1)  # what the pane does next
+
+    assert view._turn is mid_flight, "the in-flight leaf was replaced"
+    assert view._index == 2
+
+
+def test_dragging_all_the_way_over_finishes_on_the_spot(qtbot, bound_preview):
+    """There is no leftover animation to play when the reader has already
+    carried the leaf the whole way — it is where it was going."""
+    view = _view(qtbot)
+    view.display(bound_preview, 1)
+    steps = []
+    view.step_requested.connect(steps.append)
+
+    released_at = _drag(view, 0.80, 0.02)
+
+    assert released_at == pytest.approx(1.0)
+    assert view._turn is None
+    assert steps == [1]
