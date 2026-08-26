@@ -78,6 +78,15 @@ its own spread (rather than standing alone), and the very last page is
 always guaranteed blank and shown alone, since padding always fills out to a
 full signature.
 
+**Separate wrap cover (first/last page)**, also in that panel, treats the
+first and last source pages as a single-folio cover — one sheet, folded on
+its own (outside spread: back cover left, front cover right; inside spread
+blank), wrapped around the interior pages, which get imposed into their own
+signature(s) as usual. This is the standard structure for a saddle-stitch
+booklet printed with heavier cover stock. Mutually exclusive with the
+endpapers option (the UI unchecks one when you check the other) — a case
+binding's cover *is* the case, it doesn't also get a wrap folio.
+
 ## Known follow-ups
 
 - The thumbnail sidebar (`widgets/thumbnail_list.py`) has some extra blank

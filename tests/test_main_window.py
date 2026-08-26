@@ -259,3 +259,36 @@ def test_thumbnail_context_menu_signals_wire_to_main_window_handlers(qtbot, make
     assert window._source_pane.thumbnail_list._editable
     assert not window._imposed_pane.thumbnail_list._editable
     assert not window._bound_preview_pane.thumbnail_list._editable
+
+
+def test_separate_cover_checkbox_regenerates_with_cover(qtbot, make_pdf):
+    path = make_pdf(num_pages=10)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._imposition_panel._signature_size.setValue(8)
+    window.open_pdf(str(path))
+
+    window._imposition_panel._separate_cover.setChecked(True)
+    window._imposition_panel.try_emit_params()
+
+    assert window._imposed_pane.document.page_count == 10  # 2 cover + 8 interior
+    stats_text = window._imposition_panel._stats_label.text()
+    assert "cover sheet" in stats_text
+
+
+def test_separate_cover_and_endpapers_checkboxes_are_mutually_exclusive(qtbot):
+    from bookwork.widgets.imposition_panel import ImpositionPanel
+
+    panel = ImpositionPanel()
+    qtbot.addWidget(panel)
+
+    panel._include_endpapers.setChecked(True)
+    assert panel._include_endpapers.isChecked()
+
+    panel._separate_cover.setChecked(True)
+    assert panel._separate_cover.isChecked()
+    assert not panel._include_endpapers.isChecked()  # turned off automatically
+
+    panel._include_endpapers.setChecked(True)
+    assert panel._include_endpapers.isChecked()
+    assert not panel._separate_cover.isChecked()  # turned off automatically

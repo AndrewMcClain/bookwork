@@ -13,6 +13,7 @@ from bookwork.imposition import (
     ImpositionParams,
     bound_reading_order,
     build_bound_preview,
+    build_cover_order,
     compute_bound_preview_views,
     compute_signature_order,
     compute_stats,
@@ -373,3 +374,111 @@ def test_compute_stats_accounts_for_endpapers():
     assert with_endpapers.blank_pages_added == 8
     assert with_endpapers.signature_count == 2
     assert with_endpapers.sheet_side_count == 8
+
+
+# --- Separate wrap cover (first/last page as a single folio) ---
+#
+# Reference for page_count=10, signature_size_pages=8: interior is the 8
+# middle pages (source indices 1..8). Hand-derived by combining
+# build_cover_order(0, 9) with compute_signature_order(8, 8, leading_blanks=1,
+# trailing_blanks=1) (already verified against real psbook elsewhere in this
+# file) shifted by +1, and cross-checked against the function's own output
+# during development.
+
+
+def test_build_cover_order():
+    assert build_cover_order(first_index=0, last_index=9) == [9, 0, None, None]
+
+
+def test_imposition_params_rejects_separate_cover_with_endpapers():
+    with pytest.raises(ValueError):
+        ImpositionParams(separate_cover=True, include_endpapers=True)
+
+
+def test_impose_separate_cover_sheet_count(make_pdf):
+    path = make_pdf(num_pages=10)
+    src = fitz.open(path)
+    out = impose(src, ImpositionParams(signature_size_pages=8, separate_cover=True))
+    # cover: 2 sheet sides. interior (8 pages + 2 inside-cover blanks = 10,
+    # rounds up to 16): 8 sheet sides. Total 10.
+    assert out.page_count == 10
+
+
+def test_impose_separate_cover_outside_spread_layout(make_pdf):
+    # Outside cover spread: back cover (page 10) on the left, front cover
+    # (page 1) on the right.
+    path = make_pdf(num_pages=10)
+    src = fitz.open(path)
+    params = ImpositionParams(signature_size_pages=8, separate_cover=True, margin_pt=10, gutter_pt=0)
+    out = impose(src, params)
+
+    cover_front_sheet = out[0]
+    cell_boundary = params.sheet_width_pt / 2
+    back_rect = cover_front_sheet.search_for("Page 10")[0]
+    # "Page 1" is also a substring of "Page 10", so search_for returns both
+    # hits; take the one actually in the right-hand cell.
+    front_rect = next(r for r in cover_front_sheet.search_for("Page 1") if r.x0 >= cell_boundary)
+    assert back_rect.x1 <= cell_boundary
+    assert front_rect.x0 >= cell_boundary
+
+    # Inside cover spread (sheet 1) is blank.
+    assert out[1].get_text().strip() == ""
+
+
+def test_bound_reading_order_separate_cover_matches_hand_derivation():
+    mapping = bound_reading_order(10, 8, separate_cover=True)
+    assert len(mapping) == 18
+    assert mapping[0] == (0, "right")  # cover front (page 1)
+    assert mapping[-1] == (0, "left")  # cover back (page 10)
+    # Interior: reading slot for source page i (1..8) is i+1.
+    assert mapping[2] == (3, "left")  # page 2 (source index 1)
+    assert mapping[9] == (6, "right")  # page 9 (source index 8)
+    assert mapping[1] is None  # inside-front-cover blank
+    assert all(entry is None for entry in mapping[10:17])  # interior filler
+
+
+def test_compute_bound_preview_views_separate_cover_both_ends_alone():
+    views = compute_bound_preview_views(18)
+    assert views[0] == (0,)
+    assert views[-1] == (17,)
+    assert views[1] == (1, 2)
+
+
+def test_build_bound_preview_separate_cover_end_to_end(make_pdf):
+    path = make_pdf(num_pages=10)
+    src = fitz.open(path)
+    params = ImpositionParams(signature_size_pages=8, separate_cover=True)
+    imposed = impose(src, params)
+
+    preview = build_bound_preview(imposed, src_page_count=10, params=params)
+
+    # Front cover alone, single-width.
+    assert "Page 1" in preview[0].get_text()
+    assert preview[0].rect.width == params.sheet_width_pt / 2
+
+    # Inside-front-cover blank pairs with page 2 (interior's own leading
+    # blank) as the first real spread.
+    assert preview[1].get_text().strip() == "Page 2"
+    rect2 = preview[1].search_for("Page 2")[0]
+    assert rect2.x0 >= preview[1].rect.width / 2  # page 2 on the right
+
+    # Back cover alone at the very end, single-width.
+    assert "Page 10" in preview[-1].get_text()
+    assert preview[-1].rect.width == params.sheet_width_pt / 2
+
+
+def test_impose_separate_cover_requires_at_least_two_pages(make_pdf):
+    path = make_pdf(num_pages=1)
+    src = fitz.open(path)
+    with pytest.raises(ValueError):
+        impose(src, ImpositionParams(separate_cover=True))
+
+
+def test_compute_stats_separate_cover(make_pdf):
+    stats = compute_stats(page_count=10, params=ImpositionParams(signature_size_pages=8, separate_cover=True))
+    assert stats.has_separate_cover
+    assert stats.cover_physical_sheet_count == 1
+    assert stats.signature_count == 2
+    assert stats.blank_pages_added == 8
+    assert stats.sheet_side_count == 10
+    assert stats.physical_sheet_count == 5

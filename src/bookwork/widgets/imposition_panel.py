@@ -63,6 +63,24 @@ class ImpositionPanel(QWidget):
             "stapled/saddle-stitch booklet."
         )
 
+        self._separate_cover = QCheckBox("Separate wrap cover (first/last page)")
+        self._separate_cover.setChecked(initial.separate_cover)
+        self._separate_cover.setToolTip(
+            "Treat the first and last page as a single-folio cover, printed\n"
+            "and folded on its own, wrapped around the interior signature(s)\n"
+            "— e.g. for a saddle-stitch booklet with heavier cover stock."
+        )
+
+        # Mutually exclusive: ImpositionParams itself rejects both being set,
+        # but resolving that in the UI directly is friendlier than a warning
+        # dialog every time.
+        self._include_endpapers.toggled.connect(
+            lambda checked: self._separate_cover.setChecked(False) if checked else None
+        )
+        self._separate_cover.toggled.connect(
+            lambda checked: self._include_endpapers.setChecked(False) if checked else None
+        )
+
         self._apply_button = QPushButton("Apply")
         self._apply_button.clicked.connect(self.try_emit_params)
 
@@ -74,6 +92,7 @@ class ImpositionPanel(QWidget):
         form.addRow("Gutter (in)", self._gutter_in)
         form.addRow(self._show_crop_marks)
         form.addRow(self._include_endpapers)
+        form.addRow(self._separate_cover)
         form.addRow(self._apply_button)
 
         self._stats_label = QLabel("Open a PDF to see layout stats.")
@@ -116,6 +135,7 @@ class ImpositionPanel(QWidget):
             gutter_pt=self._gutter_in.value() * _PT_PER_INCH,
             show_crop_marks=self._show_crop_marks.isChecked(),
             include_endpapers=self._include_endpapers.isChecked(),
+            separate_cover=self._separate_cover.isChecked(),
         )
 
     def try_emit_params(self) -> None:
@@ -136,12 +156,13 @@ class ImpositionPanel(QWidget):
             if stats.signature_size_pages == 0
             else f"{stats.signature_size_pages} pages/signature"
         )
-        lines = [
-            f"<b>{stats.source_page_count}</b> source pages, {signature_desc}",
-            f"<b>{stats.signature_count}</b> signature(s)",
-        ]
+        lines = [f"<b>{stats.source_page_count}</b> source pages, {signature_desc}"]
+        if stats.has_separate_cover:
+            lines.append(f"<b>1</b> cover sheet + <b>{stats.signature_count}</b> interior signature(s)")
+        else:
+            lines.append(f"<b>{stats.signature_count}</b> signature(s)")
         if stats.blank_pages_added:
-            lines.append(f"<b>{stats.blank_pages_added}</b> blank page(s) added to pad the last signature")
+            lines.append(f"<b>{stats.blank_pages_added}</b> blank page(s) added")
         lines.append(
             f"<b>{stats.sheet_side_count}</b> sheet sides "
             f"(<b>{stats.physical_sheet_count}</b> physical sheet(s) of paper, printed duplex)"
