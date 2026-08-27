@@ -4,6 +4,7 @@
 |---|---|
 | [design.md](design.md) | How the app is put together: stack, module map, the imposition pipeline, parameters, how it is tested. Start here. |
 | [decisions.md](decisions.md) | Choices that are not obvious from the code, and the failures that motivated them. Check here before changing something that looks odd. |
+| [third-party.md](third-party.md) | Dependency licences, and what PyMuPDF being AGPL means if you redistribute a build. |
 | [background.md](background.md) | The manual PostScript workflow Bookwork replaces, and where each of its rough edges went. Explains why the project exists. |
 
 ## Adding to these

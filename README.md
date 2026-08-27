@@ -164,3 +164,8 @@ GPL v3 — see [COPYING](COPYING).
 
 Development dependencies (`pytest`, `pytest-qt`, `pyinstaller`) are permissively
 licensed and are not included in distributed binaries.
+
+Note that **PyMuPDF, which every build depends on, is AGPL v3** (or a commercial
+licence from Artifex). That is compatible with GPL v3, but it carries the AGPL's
+network clause into any build you redistribute — see
+[docs/third-party.md](docs/third-party.md).
