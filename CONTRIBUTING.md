@@ -62,7 +62,8 @@ to a PR.
 - **Work on a branch**, not your fork's `main` — otherwise syncing your fork
   later becomes miserable.
 - **Contribute code you understand.** If you cannot explain why a change works,
-  it is not ready, whoever or whatever wrote it.
+  it is not ready, whoever or whatever wrote it — see
+  [Using AI assistance](#using-ai-assistance).
 
 ## Tests
 
@@ -88,6 +89,49 @@ Conventions worth knowing:
   the same painter path a real job takes.
 - Tests may assert freely and may reach into private helpers; both are the
   point, and ruff is configured to allow it under `tests/`.
+
+## Using AI assistance
+
+Yes, and it would be odd to pretend otherwise: most of this repository was
+written with an AI assistant, and the commits say so — 29 of the first 33 carry
+a `Co-Authored-By` trailer. A project whose own history is full of AI-assisted
+work is in no position to forbid it in yours.
+
+So the rule is not about the tool. It is the same bar every contribution meets:
+
+- **You understand it.** You can explain why it works, and what would break it.
+- **You verified it.** Tests that actually fail without your change; for
+  anything about printing or layout, output you have looked at.
+- **You have the right to contribute it** under GPL v3-or-later. Whether
+  machine-generated text carries copyright is unsettled, and this project
+  cannot resolve that for you — but by opening a PR you are asserting the
+  contribution is yours to give.
+
+That bar is not boilerplate, and it is stricter in practice for generated code,
+because the failure mode is code that *looks* right. Real examples from this
+repository, all AI-written and all caught by verification rather than by
+review:
+
+- A test compared rendered images to prove a page was not mirrored — using test
+  PDFs so nearly symmetric that mirroring one barely moved a pixel. It passed
+  whether the bug was present or not.
+- A preset round-trip test saved and loaded within a single process, so it hit
+  an in-memory cache and never touched the code path where the bug actually
+  lived. Presets were broken across every restart and the test was green.
+- A duplicated branch was removed as redundant. It was redundant — because both
+  halves were doing the same wrong thing.
+
+None of those were caught by reading the diff. They were caught by asking
+whether the test failed without the fix, and by looking at the output.
+
+If you use an assistant, add the trailer:
+
+```
+Co-Authored-By: <assistant name> <email or noreply address>
+```
+
+Not as a warning label — as provenance, the same reason human co-authors get
+one.
 
 ## Reporting a bug
 
