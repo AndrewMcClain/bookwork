@@ -70,17 +70,35 @@ opposite edge by the amount it was pulled in on this one.
 Use its size, not its position. This was found while fixing the clipping above
 and would otherwise have just moved the clip to the other edge.
 
-### Content is protected from clipping; crop marks are not
+### The sheet is shrunk to fit and centred on the paper
 
-Shrinking every page to fit the printable area works but introduces a phantom
-margin, making the trim size slightly smaller than configured. Since imposition
-already guarantees content stays `margin_pt` clear of the sheet edge, print time
-computes the minimum scale needed to keep *that region* inside the printable
-area — usually 1.0, i.e. no shrink at all.
+Two separate things, both learned from real output.
 
-The trade: on a printer whose hardware margin exceeds the configured margin, the
-crop marks nearest that edge may clip. That is deliberate. Marks are guidance;
-content is the artefact.
+An earlier version drew each sheet at native size and protected only the
+*content* from clipping, on the reasoning that content is the artefact and
+marks are mere guidance. That is backwards for this workflow: crop marks are
+what you fold and cut along, so a sheet whose marks are missing cannot be
+trimmed accurately at all. Better a slightly smaller book you can cut straight
+than a full-size one you cannot. Everything scales together, marks included.
+
+The sheet is centred on the **paper**, not on the printable area. The spine
+runs down the middle of the sheet and the sheet is folded along it, so the
+spine must land on the paper's own centreline. Hardware margins are routinely
+asymmetric — the printer this was developed against reports 16pt at the top
+and 10pt at the bottom — and centring within the printable area shifted the
+sheet 3pt (about 1mm) off centre and hung it over the opposite paper edge.
+Symmetric left/right margins hid this on that particular printer; on one with
+asymmetric horizontal margins it is a visibly off-centre fold.
+
+Note the scale is bounded by the *larger* margin on each axis, doubled: once
+the sheet is centred on the paper, the tighter side limits it, and the room on
+the looser side cannot be used without moving off centre.
+
+The cost, worth knowing: the finished page comes out slightly smaller than
+configured — about 94.8% on that printer, turning a nominal 5.5×8.5" page into
+roughly 5.2×8.05". Because the marks scale with everything else, cutting on
+them still gives consistent pages within a print run; across different
+printers the scale, and so the trim size, can differ.
 
 ### Landscape needs the orientation flag, not just a wide page size
 

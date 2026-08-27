@@ -91,7 +91,8 @@ imposed sheets
    ▼
    ├──▶ Imposed tab — the sheets as they will print
    ├──▶ Bound Preview tab — the same sheets recomposed into reading order
-   └──▶ printing.py — QPrinter, sized and duplexed to the sheet
+   └──▶ printing.py — QPrinter, sized and duplexed to the sheet, shrunk
+        to the real printable area and centred on the paper
 ```
 
 ## The three tabs

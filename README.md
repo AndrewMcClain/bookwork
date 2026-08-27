@@ -109,13 +109,17 @@ File → Print Imposed (Ctrl+P) opens the system print dialog, pre-sized to the
 imposed sheet and set to short-edge duplex. It always prints the Imposed tab's
 output regardless of which tab is showing.
 
-Most printers — laser especially — have a hardware margin they cannot image into.
-Bookwork draws each page at native size unless the printable area is too small to
-fit the *content* (the region your configured margin already keeps clear), in
-which case it shrinks by just enough to keep the content safe. So on a typical
-printer nothing shrinks and no phantom margin appears; the crop marks nearest the
-edge may clip instead. That trade is deliberate — marks are guidance, content is
-the artefact.
+Most printers — laser especially — have a hardware margin they cannot image
+into. Bookwork shrinks each sheet just enough to fit what the printer can
+actually put ink on, and centres it on the paper so the spine lands on the
+paper's centreline and folds come out straight.
+
+That keeps the crop marks — which is the point, since they are what you fold
+and cut along. The trade is that the finished page ends up slightly smaller
+than the nominal trim size (about 95% on a typical laser printer). The marks
+scale with everything else, so cutting on them still gives you consistent
+pages; just be aware the scale can differ between printers, so print a whole
+book on one.
 
 ## Project layout
 

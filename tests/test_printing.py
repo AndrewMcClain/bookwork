@@ -122,113 +122,141 @@ def test_print_document_clamps_out_of_range_page_range(qtbot, make_pdf, tmp_path
     assert result.page_count == 3
 
 
-def test_print_target_rect_no_shrink_when_printable_area_covers_content(qtbot):
-    # Printable area smaller than the full sheet, but still bigger than the
-    # margin-inset content region (18pt margin > 10pt simulated hardware
-    # margin) -> draw at full native size, no shrink. The sheet's own outer
-    # edge (2pt beyond the printable area on each side) would get clipped
-    # by a real device, but that's only where crop marks live, not content.
-    sheet_px = QSizeF(792 / 72 * 300, 612 / 72 * 300)  # 792x612pt at 300 DPI
-    printable_area_px = QRectF(10, 10, (792 - 20) / 72 * 300, (612 - 20) / 72 * 300)  # 10pt margin
-    target = _print_target_rect(sheet_px, 300, 18.0, printable_area_px, 300)
-    assert target.width() == pytest.approx(sheet_px.width(), abs=1.0)
-    assert target.height() == pytest.approx(sheet_px.height(), abs=1.0)
+def _rects(paper_w, paper_h, left, top, right, bottom, dpi=300):
+    """Paper and printable rects in device pixels, from margins in points."""
+    s = dpi / 72.0
+    paper = QRectF(0, 0, paper_w * s, paper_h * s)
+    printable = QRectF(
+        left * s, top * s, (paper_w - left - right) * s, (paper_h - top - bottom) * s
+    )
+    return paper, printable
 
 
-def test_print_target_rect_shrinks_only_enough_to_protect_content(qtbot):
-    # Printable area smaller than even the margin-inset content region (40pt
-    # simulated hardware margin > 18pt content margin) -> must shrink, but
-    # only as much as needed to keep the *content* (not the full sheet)
-    # inside the printable area.
-    sheet_px = QSizeF(792 / 72 * 300, 612 / 72 * 300)
-    printable_area_px = QRectF(40, 40, (792 - 80) / 72 * 300, (612 - 80) / 72 * 300)
-    target = _print_target_rect(sheet_px, 300, 18.0, printable_area_px, 300)
-
-    assert target.width() < sheet_px.width()  # did shrink
-
-    # The content region (margin_pt inset from target's own edges, scaled
-    # along with everything else) must land fully inside printable_area_px.
-    scale = target.width() / sheet_px.width()
-    margin_px = 18.0 / 72 * 300 * scale
-    content_left = target.x() + margin_px
-    content_right = target.x() + target.width() - margin_px
-    assert content_left >= printable_area_px.x() - 1.0
-    assert content_right <= printable_area_px.x() + printable_area_px.width() + 1.0
+def _sheet(width_pt=792, height_pt=612, dpi=300):
+    return QSizeF(width_pt / 72 * dpi, height_pt / 72 * dpi)
 
 
-def test_print_target_rect_zero_margin_always_shrinks_to_fit(qtbot):
-    # margin_pt=0 (the default) means there's no known content-safe region,
-    # so it falls back to protecting the whole sheet -- the old behavior.
-    sheet_px = QSizeF(792 / 72 * 300, 612 / 72 * 300)
-    printable_area_px = QRectF(10, 10, (792 - 20) / 72 * 300, (612 - 20) / 72 * 300)
-    target = _print_target_rect(sheet_px, 300, 0.0, printable_area_px, 300)
-    assert target.width() < sheet_px.width()
+def _on_paper(target, printable, dpi=300):
+    """Convert a painter-coordinate target back to paper coordinates. The
+    painter's origin is the printable area's top-left."""
+    s = 72.0 / dpi
+    return QRectF(
+        target.x() * s + printable.x() * s,
+        target.y() * s + printable.y() * s,
+        target.width() * s,
+        target.height() * s,
+    )
 
 
-def test_print_target_rect_never_upscales(qtbot):
-    sheet_px = QSizeF(100, 100)
-    printable_area_px = QRectF(0, 0, 500, 500)  # much bigger than the sheet
-    target = _print_target_rect(sheet_px, 300, 0.0, printable_area_px, 300)
-    assert target.width() == pytest.approx(100.0, abs=1e-6)
-    assert target.height() == pytest.approx(100.0, abs=1e-6)
+def test_sheet_is_centred_on_the_paper_not_the_printable_area(qtbot):
+    """The spine runs down the middle of the sheet and the sheet is folded
+    along it, so the spine has to land on the paper's own centreline.
+
+    Printers' hardware margins are routinely asymmetric — the laser printer
+    this was developed against reports 16pt top and 10pt bottom — and
+    centring within the printable area shifts the sheet by half that
+    difference, which is an off-centre fold.
+    """
+    paper, printable = _rects(792, 612, left=30, top=16, right=10, bottom=10)
+    target = _print_target_rect(_sheet(), 300, paper, printable, 300)
+    drawn = _on_paper(target, printable)
+
+    assert drawn.x() + drawn.width() / 2 == pytest.approx(792 / 2, abs=0.1)
+    assert drawn.y() + drawn.height() / 2 == pytest.approx(612 / 2, abs=0.1)
 
 
-def test_print_target_rect_handles_different_image_and_printer_dpi(qtbot):
-    # The image is rendered at 300 DPI; the printer device may report a
-    # completely different resolution (e.g. a real printer's 1200 DPI) --
-    # mixing the two pixel spaces without converting was an earlier bug.
-    sheet_px_at_300dpi = QSizeF(792 / 72 * 300, 612 / 72 * 300)
-    printable_area_px_at_1200dpi = QRectF(0, 0, 792 / 72 * 1200, 612 / 72 * 1200)
-    target = _print_target_rect(sheet_px_at_300dpi, 300, 0.0, printable_area_px_at_1200dpi, 1200)
-    # Same physical size (792x612pt), expressed in the printer's own 1200
-    # DPI pixel space -- not the image's 300 DPI one.
+def test_whole_sheet_including_crop_marks_lands_inside_the_printable_area(qtbot):
+    """Marks sit at the sheet's outer edge and are what you fold and cut
+    along, so losing them defeats their purpose."""
+    paper, printable = _rects(792, 612, left=10, top=16, right=10, bottom=10)
+    target = _print_target_rect(_sheet(), 300, paper, printable, 300)
+    drawn = _on_paper(target, printable)
+
+    assert drawn.x() >= 10 - 0.1
+    assert drawn.y() >= 16 - 0.1
+    assert drawn.x() + drawn.width() <= 792 - 10 + 0.1
+    assert drawn.y() + drawn.height() <= 612 - 10 + 0.1
+
+
+def test_scale_is_bounded_by_the_larger_margin_on_each_axis(qtbot):
+    """Once the sheet is centred on the paper, the tighter side limits it —
+    the extra room on the looser side cannot be used without moving off
+    centre."""
+    paper, printable = _rects(792, 612, left=40, top=0, right=0, bottom=0)
+    target = _print_target_rect(_sheet(), 300, paper, printable, 300)
+    drawn = _on_paper(target, printable)
+
+    # 40pt on one side means 40pt reserved on both: 792 - 80 usable.
+    assert drawn.width() == pytest.approx(792 - 80, abs=0.5)
+
+
+def test_no_shrink_when_the_printer_has_no_hardware_margin(qtbot):
+    """A borderless device, or PDF output, should print at full size."""
+    paper, printable = _rects(792, 612, left=0, top=0, right=0, bottom=0)
+    target = _print_target_rect(_sheet(), 300, paper, printable, 300)
+    drawn = _on_paper(target, printable)
+
+    assert drawn.width() == pytest.approx(792, abs=0.1)
+    assert drawn.height() == pytest.approx(612, abs=0.1)
+
+
+def test_sheet_is_never_enlarged(qtbot):
+    paper, printable = _rects(2000, 2000, left=0, top=0, right=0, bottom=0)
+    target = _print_target_rect(_sheet(), 300, paper, printable, 300)
+    drawn = _on_paper(target, printable)
+
+    assert drawn.width() == pytest.approx(792, abs=0.1)
+
+
+def test_aspect_ratio_is_preserved(qtbot):
+    paper, printable = _rects(792, 612, left=10, top=40, right=10, bottom=5)
+    target = _print_target_rect(_sheet(), 300, paper, printable, 300)
+
+    assert target.width() / target.height() == pytest.approx(792 / 612, rel=1e-6)
+
+
+def test_handles_different_image_and_printer_dpi(qtbot):
+    """The page is rasterised at PRINT_DPI; the printer device reports its
+    own, often much higher, resolution. Mixing the two pixel spaces was a
+    real bug."""
+    paper, printable = _rects(792, 612, left=0, top=0, right=0, bottom=0, dpi=1200)
+    target = _print_target_rect(_sheet(dpi=300), 300, paper, printable, 1200)
+
+    # Same physical size, expressed in the printer's 1200 DPI pixels.
     assert target.width() == pytest.approx(792 / 72 * 1200, abs=1.0)
     assert target.height() == pytest.approx(612 / 72 * 1200, abs=1.0)
 
 
-def test_print_document_protects_content_but_lets_marks_clip_on_real_hardware_margin(
-    qtbot, make_pdf, tmp_path
-):
-    # End-to-end regression test for the real bug report: with a content
-    # margin (18pt) bigger than the printer's simulated hardware margin
-    # (10pt) -- the realistic case bookwork's own default margin covers --
-    # the page draws at full native size, completely unscaled/unshifted, so
-    # no "unintended margin" is introduced. (Simulate the hardware margin
-    # via setPageMargins; PdfFormat output otherwise has none to test
-    # against.)
+def test_print_document_centres_the_sheet_on_asymmetric_margins(qtbot, make_pdf, tmp_path):
+    """End to end: the drawn image must sit centred on the page with equal
+    margins, even though the printer's own are lopsided."""
     src_path = make_pdf(num_pages=1, page_size=(792, 612))
     document = PdfDocument(src_path)
     printer, out_path = _make_printer(tmp_path)
-    printer.setPageMargins(QMarginsF(10, 10, 10, 10), QPageLayout.Unit.Point)
+    printer.setPageMargins(QMarginsF(30, 16, 10, 10), QPageLayout.Unit.Point)
 
-    print_document(document, printer, margin_pt=18.0)
+    print_document(document, printer)
 
-    out = fitz.open(out_path)
-    bbox = out[0].get_image_info()[0]["bbox"]
-    assert bbox == pytest.approx((0.0, 0.0, 792.0, 612.0), abs=1.0)
+    page = fitz.open(out_path)[0]
+    left, top, right, bottom = page.get_image_info()[0]["bbox"]
+    assert left == pytest.approx(page.rect.width - right, abs=1.0), "not centred horizontally"
+    assert top == pytest.approx(page.rect.height - bottom, abs=1.0), "not centred vertically"
 
 
-def test_print_document_shrinks_to_protect_content_when_hardware_margin_exceeds_it(
-    qtbot, make_pdf, tmp_path
-):
-    # Now the simulated hardware margin (40pt) exceeds our content margin
-    # (18pt): content must still not be clipped, so this time it does shrink.
+def test_print_document_keeps_the_whole_sheet_printable(qtbot, make_pdf, tmp_path):
     src_path = make_pdf(num_pages=1, page_size=(792, 612))
     document = PdfDocument(src_path)
     printer, out_path = _make_printer(tmp_path)
-    printer.setPageMargins(QMarginsF(40, 40, 40, 40), QPageLayout.Unit.Point)
+    printer.setPageMargins(QMarginsF(30, 16, 10, 10), QPageLayout.Unit.Point)
 
-    print_document(document, printer, margin_pt=18.0)
+    print_document(document, printer)
 
-    out = fitz.open(out_path)
-    bbox = out[0].get_image_info()[0]["bbox"]
-    left, top, right, bottom = bbox
-    assert right - left < 792.0  # did shrink, unlike the case above
-    content_margin = 18.0 * (right - left) / 792.0  # scaled along with the sheet
-    assert left + content_margin >= 40.0 - 1.0
-    assert top + content_margin >= 40.0 - 1.0
-    assert right - content_margin <= 792.0 - 40.0 + 1.0
-    assert bottom - content_margin <= 612.0 - 40.0 + 1.0
+    page = fitz.open(out_path)[0]
+    left, top, right, bottom = page.get_image_info()[0]["bbox"]
+    # Nothing may fall inside any hardware margin, so the tightest bound on
+    # each axis applies to both sides.
+    assert left >= 30 - 1.0 and right <= page.rect.width - 30 + 1.0
+    assert top >= 16 - 1.0 and bottom <= page.rect.height - 16 + 1.0
 
 
 def test_print_document_empty_document_prints_nothing(qtbot, make_pdf, tmp_path):
