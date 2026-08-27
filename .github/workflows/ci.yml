@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch makes the in-flight run irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # No display on any runner, and a smoke test shouldn't need one anyway.
+  QT_QPA_PLATFORM: offscreen
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      # --locked fails rather than silently re-resolving, so a stale lockfile
+      # is caught here instead of producing a build nobody can reproduce.
+      - run: uv sync --locked
+      - run: uv run ruff check src tests
+      - run: uv run ruff format --check src tests
+
+  test:
+    strategy:
+      # One platform failing shouldn't hide whether the others pass — that is
+      # the entire question for Windows and macOS, which have never been run.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      # Qt needs these even for the offscreen platform plugin; the runner
+      # image doesn't carry them.
+      - name: Install Qt's Linux runtime dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0
+      - run: uv sync --locked
+      - run: uv run pytest -q
+
+  build:
+    # Only worth building something that lints and passes its tests.
+    needs: [lint, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install Qt's Linux runtime dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0
+      - run: uv sync --locked
+
+      # The spec resolves its paths against the working directory, not its own
+      # location — see packaging/README.md.
+      - name: Build the bundle
+        working-directory: packaging
+        run: uv run pyinstaller bookwork.spec --noconfirm
+
+      # Importing the package proves nothing here: the bundle is a separate
+      # frozen interpreter. Launching it is the only way to catch a missing
+      # shared library or an uncollected Qt plugin.
+      - name: Check the bundle starts
+        run: uv run python packaging/scripts/smoke_bundle.py
+
+      - name: Build the .deb
+        if: runner.os == 'Linux'
+        run: bash packaging/scripts/build_deb.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bookwork-${{ matrix.os }}
+          path: |
+            packaging/dist/bookwork/
+            packaging/dist/Bookwork.app/
+            packaging/dist/*.deb
+          if-no-files-found: error
+          # These are ~260MB each and only useful while the run is fresh.
+          retention-days: 7

@@ -21,7 +21,9 @@ uv run ruff check src tests
 uv run pytest          # QT_QPA_PLATFORM=offscreen if there's no display
 ```
 
-**There is no CI**, so these are the only checks that happen.
+CI runs the same three on every pull request, across Linux, Windows and
+macOS, and builds the app on each. Running them locally first just saves you a
+round trip.
 
 ## Before you change anything
 
