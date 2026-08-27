@@ -4,9 +4,8 @@ Impose a PDF for booklet printing: reorder pages into signatures, lay them out
 two-up with margins and a binding gutter, check the result as a bound book, and
 print it duplex. Cut, fold, bind — and the pages read in order.
 
-A cross-platform desktop replacement for the `pdf2ps | psbook | psnup | lp`
-chain, which worked but was Linux-only and gave you no way to catch an
-off-by-one before it cost a print run.
+Replaces a manual tool chain that worked but was platform-specific and gave
+you no way to catch an off-by-one before it cost a print run.
 
 **Status:** used for real printing on Linux. Windows and macOS builds are
 written but have never been run — see [Known gaps](#known-gaps).
@@ -58,7 +57,6 @@ printer, so print a whole book on one machine.
 |---|---|
 | [docs/design.md](docs/design.md) | How it's built |
 | [docs/decisions.md](docs/decisions.md) | Why it's built that way, and the bugs behind it |
-| [docs/background.md](docs/background.md) | The manual process this replaces |
 | [docs/third-party.md](docs/third-party.md) | Dependency licences |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Setup, tests, commit format, AI policy |
 | [packaging/README.md](packaging/README.md) | Building a standalone app |

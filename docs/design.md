@@ -1,12 +1,11 @@
 # Design
 
-How Bookwork is built. Why it's built this way is [decisions.md](decisions.md);
-what it replaces is [background.md](background.md).
+How Bookwork is built. Why it's built this way is [decisions.md](decisions.md).
 
 ## Terms
 
 - **Signature** — leaves folded together as one section. Counted in **pages,
-  not sheets** (matching `psbook`); must be 0 or a multiple of 4.
+  not sheets** — the conventional unit; must be 0 or a multiple of 4.
 - **Sheet side** — one face of a sheet, holding two pages.
 - **Recto / verso** — front and back of a leaf.
 - **Gutter** — extra inner margin next to the spine, to survive binding.
@@ -16,9 +15,9 @@ what it replaces is [background.md](background.md).
 Python 3.12+, [PyMuPDF](https://pymupdf.readthedocs.io/) for PDF work,
 PySide6 (Qt) for the GUI, PyInstaller for packaging.
 
-PyMuPDF does rendering *and* page composition, so it replaces the entire
-Ghostscript/psutils chain with testable Python. Qt's `QPrinter` abstracts CUPS
-and the Windows spooler with no per-platform branching.
+PyMuPDF does rendering *and* page composition in one library, so page layout
+is plain testable Python. Qt's `QPrinter` abstracts CUPS and the Windows
+spooler with no per-platform branching.
 
 ## Modules
 
@@ -54,8 +53,8 @@ _SignatureLayout.resolve()
    │  imposed sheets and the Bound Preview cannot disagree.
    ▼
 compute_signature_order()
-   │  psbook's algorithm. Chunk lengths from _chunk_sizes(), each chunk
-   │  reordered by _signature_block_order().
+   │  the standard saddle-stitch formula. Chunk lengths from _chunk_sizes(),
+   │  each chunk reordered by _signature_block_order().
    ▼
 _build_sheets()
    │  two pages per sheet side via show_pdf_page(keep_proportion=True).
@@ -94,7 +93,7 @@ cell, so scale falls out of the margin and gutter.
 
 `uv run pytest` (`QT_QPA_PLATFORM=offscreen` with no display).
 
-- Page math is checked against known-good `psbook` output.
+- Page math is checked against known-good reference output.
 - Page-turn geometry lives in module-level pure functions, so most of it needs
   no window and no running animation.
 - An autouse fixture forces animations to zero duration; without it tests race

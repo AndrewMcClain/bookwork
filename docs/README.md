@@ -4,7 +4,6 @@
 |---|---|
 | [design.md](design.md) | Stack, modules, pipeline, parameters, testing |
 | [decisions.md](decisions.md) | Non-obvious choices and the bugs behind them |
-| [background.md](background.md) | The manual process this replaces |
 | [third-party.md](third-party.md) | Dependency licences; PyMuPDF is AGPL |
 
 `decisions.md` is the one that earns its keep — check it before changing

@@ -18,10 +18,9 @@
 
 """Tests for bookwork.imposition.
 
-The signature-order expectations below (M=8 and M=20 cases) were captured by
-actually running `psbook` (psutils 3.3.14) on generated test PDFs and reading
-its output page order — see the design-doc update in the session this was
-written. `None` stands in for a blank padding page.
+The signature-order expectations below (M=8 and M=20 cases) were captured
+from a reference implementation's output on generated test PDFs. `None` stands
+in for a blank padding page.
 """
 
 import pymupdf as fitz
@@ -40,7 +39,7 @@ from bookwork.imposition import (
 )
 
 
-def test_signature_order_matches_psbook_s8_two_full_signatures():
+def test_signature_order_s8_two_full_signatures():
     # 16 pages, signature size 8 (2 sheets/signature, 2 signatures, no padding).
     order = compute_signature_order(page_count=16, signature_size_pages=8)
     expected = [
@@ -64,18 +63,18 @@ def test_signature_order_matches_psbook_s8_two_full_signatures():
     assert order == expected
 
 
-def test_signature_order_matches_psbook_s8_with_padding():
+def test_signature_order_s8_with_padding():
     # 20 pages, signature size 8: 2 full signatures + 1 padded (4 real + 4 blank).
-    # psbook always pads the trailing signature to the full size, matching
-    # pad_last_signature_to_full=True; the new default instead pads only to
-    # the next multiple of 4 -- see test_pad_last_signature_to_full_* below.
+    # The conventional behaviour pads the trailing signature to full size,
+    # matching pad_last_signature_to_full=True; the default here instead pads
+    # only to the next multiple of 4.
     order = compute_signature_order(page_count=20, signature_size_pages=8, pad_last_signature_to_full=True)
     assert len(order) == 24
     last_signature = order[16:]
     assert last_signature == [None, 16, 17, None, None, 18, 19, None]
 
 
-def test_signature_order_matches_psbook_s20_single_signature():
+def test_signature_order_s20_single_signature():
     # 20 pages, signature size 20 (1 signature of 5 sheets, no padding needed).
     order = compute_signature_order(page_count=20, signature_size_pages=20)
     expected = [
@@ -103,10 +102,10 @@ def test_signature_order_matches_psbook_s20_single_signature():
     assert order == expected
 
 
-def test_signature_order_matches_psbook_s20_padding_to_full_signature():
+def test_signature_order_s20_padding_to_full_signature():
     # 25 pages, signature size 20: signature 2 is padded up to a full 20 pages
-    # (15 blanks), not just to a multiple of 4 -- psbook's own (uniform)
-    # behavior, matching pad_last_signature_to_full=True.
+    # (15 blanks), not just to a multiple of 4 -- the conventional uniform
+    # behaviour, matching pad_last_signature_to_full=True.
     order = compute_signature_order(page_count=25, signature_size_pages=20, pad_last_signature_to_full=True)
     assert len(order) == 40
     second_signature = order[20:]
@@ -314,8 +313,8 @@ def test_crop_marks_track_the_actual_content_edge_not_the_fixed_cell(make_pdf):
     assert max(left_cell_marks) == pytest.approx(298.1 + 10, abs=0.5)
 
 
-def test_bound_reading_order_matches_psbook_s8_reference():
-    # Verified against real psbook -s8 output for 8 pages: physical order
+def test_bound_reading_order_s8_reference():
+    # Verified against reference output for 8 pages at s8: physical order
     # (0-indexed) is [7,0,1,6,5,2,3,4] -> sheets [0,0,1,1,2,2,3,3], cells
     # alternating left,right.
     mapping = bound_reading_order(page_count=8, signature_size_pages=8)
@@ -592,7 +591,7 @@ def test_compute_stats_endpapers_minimized_by_default():
 # Reference for page_count=10, signature_size_pages=8: interior is the 8
 # middle pages (source indices 1..8). Hand-derived by combining
 # build_cover_order(0, 9) with compute_signature_order(8, 8, leading_blanks=1,
-# trailing_blanks=1) (already verified against real psbook elsewhere in this
+# trailing_blanks=1) (already verified against reference output elsewhere in this
 # file) shifted by +1, and cross-checked against the function's own output
 # during development.
 

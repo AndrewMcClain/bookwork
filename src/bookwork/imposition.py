@@ -16,20 +16,17 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Signature-order and 2-up imposition, reimplemented natively against PDFs.
+"""Signature-order and 2-up imposition, native to PDF.
 
-This replaces the manual `psbook | psnup` shell pipeline (see docs/background.md)
-with plain, testable Python. The signature/booklet reordering algorithm below
-was verified against real `psbook` (psutils 3.3.14) output byte-for-byte,
-including how it pads a trailing partial signature with blank sides — see
-`tests/test_imposition.py`.
+The signature/booklet reordering algorithm below was verified byte-for-byte
+against a reference implementation of this ordering, including how it pads a
+trailing partial signature with blank sides — see `tests/test_imposition.py`.
 
 Terminology (see docs/design.md):
 - A "signature" is a group of consecutive pages, printed together and folded
-  as one unit. `psbook`'s `-s`/`--signature` option — and this module's
-  `signature_size_pages` — count PAGES per signature, not sheets (each sheet
-  holds 4 pages: 2 per side). This must be `0` (all pages in one signature)
-  or a multiple of 4.
+  as one unit. `signature_size_pages` counts PAGES per signature, not sheets
+  (each sheet holds 4 pages: 2 per side), which is the conventional unit.
+  It must be `0` (all pages in one signature) or a multiple of 4.
 - A "sheet side" holds 2 logical pages side by side (2-up).
 """
 
@@ -40,7 +37,7 @@ from dataclasses import dataclass
 import pymupdf as fitz
 
 #: 11in x 8.5in, i.e. US Letter fed landscape and split into two 5.5in x 8.5in
-#: halves side by side — matches the manual process's target layout.
+#: halves side by side — a common target for half-letter booklets.
 DEFAULT_SHEET_WIDTH_PT = 792.0
 DEFAULT_SHEET_HEIGHT_PT = 612.0
 
@@ -96,8 +93,8 @@ class ImpositionParams:
     #: `signature_size_pages`, to avoid wasting blank pages/sheets — e.g. a
     #: 4-page document with a 20-page signature size prints on 1 sheet
     #: instead of 5. Setting `pad_last_signature_to_full=True` forces every
-    #: signature to the same full length instead (matching psbook's own
-    #: behavior), trading that savings for uniformity. No effect when
+    #: signature to the same full length instead (the conventional uniform
+    #: behaviour), trading that savings for uniformity. No effect when
     #: `signature_size_pages` is 0 (a single signature already only pads to
     #: a multiple of 4). See `_chunk_sizes`.
     pad_last_signature_to_full: bool = False
@@ -108,7 +105,8 @@ class ImpositionParams:
         if self.signature_size_pages != 0 and self.signature_size_pages % 4 != 0:
             raise ValueError(
                 "signature_size_pages must be 0 (single signature covering the "
-                "whole document) or a multiple of 4, matching psbook's own rule"
+                "whole document) or a multiple of 4, since a signature folds "
+                "into whole sheets"
             )
         if self.sheet_width_pt <= 0 or self.sheet_height_pt <= 0:
             raise ValueError("sheet_width_pt and sheet_height_pt must be > 0")
@@ -133,7 +131,7 @@ def compute_signature_order(
     blank (padding, or an explicit leading/trailing blank), in
     signature/booklet reading order.
 
-    This mirrors `psbook`'s behavior: pages are split into consecutive chunks
+    Pages are split into consecutive chunks
     of `signature_size_pages` (or one chunk covering everything, if 0), each
     chunk reordered with the standard saddle-stitch formula so that printing
     the result 2-up, duplex, and folding once per signature yields correct
@@ -147,8 +145,8 @@ def compute_signature_order(
     By default, a trailing partial signature is padded only up to the next
     multiple of 4 (the physical minimum), not all the way to a full
     `signature_size_pages` — pass `pad_last_signature_to_full=True` to force
-    every signature to the same full length instead (matching psbook's own
-    behavior) — see `ImpositionParams.pad_last_signature_to_full` and
+    every signature to the same full length instead (the conventional uniform
+    behaviour) — see `ImpositionParams.pad_last_signature_to_full` and
     `_chunk_sizes`.
     """
     if signature_size_pages < 0:
@@ -189,8 +187,8 @@ def _chunk_sizes(total: int, signature_size_pages: int, pad_last_signature_to_fu
       fit, plus — if there's a nonzero remainder — one more signature for
       it: by default just padded up to the next multiple of 4 (fewer wasted
       blank pages), or the full `signature_size_pages`
-      (`pad_last_signature_to_full=True`, uniform, matching psbook's own
-      behavior).
+      (`pad_last_signature_to_full=True`, the conventional uniform
+      behaviour).
     """
     if total <= 0:
         return []
@@ -213,8 +211,8 @@ def _signature_block_order(block: list[int | None]) -> list[int | None]:
 
     For a signature of M pages (M a multiple of 4), sheet k (0-based) holds,
     front then back: (M-2k, 1+2k) and (2+2k, M-1-2k) in 1-indexed page
-    numbers. Verified against real `psbook` output for M=8 and M=20,
-    including padding.
+    numbers. Verified against reference output for M=8 and M=20, including
+    padding.
     """
     m = len(block)
     result: list[int | None] = []

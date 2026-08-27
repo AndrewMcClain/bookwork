@@ -9,10 +9,10 @@ New entries at the end of their section: what was decided, why, what broke.
 
 ### The last signature is padded to a multiple of 4, not to a full signature
 
-`psbook` always pads full, which wastes paper — a 4-page document at a 20-page
-signature size costs 5 sheets instead of 1. We pad to the physical minimum;
-`pad_last_signature_to_full` restores `psbook`'s behaviour, and the tests that
-pin its exact output pass that flag explicitly.
+The conventional behaviour pads full, which wastes paper — a 4-page document
+at a 20-page signature size costs 5 sheets instead of 1. We pad to the physical
+minimum; `pad_last_signature_to_full` restores the conventional behaviour, and
+the tests pinning reference output pass that flag explicitly.
 
 ### One resolver turns parameters into signature arguments
 
