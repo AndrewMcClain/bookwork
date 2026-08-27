@@ -30,9 +30,10 @@ Three tabs, in the order you work:
 
 - **Source** — the document. Right-click a thumbnail to insert or delete pages,
   with undo/redo. Edits are in memory; your file is never written to.
-- **Imposed** — the actual sheets, plus settings: signature size, sheet size,
-  margin, gutter, crop marks, endpapers, wrap cover, and whether to pad the
-  last signature. Named presets persist across runs.
+- **Imposed** — the actual sheets, plus settings: signature size, paper size
+  (Letter/Legal/A3–A5/B5, or type your own), margin, gutter, crop marks,
+  endpapers, wrap cover, and whether to pad the last signature. Named presets
+  persist across runs.
 - **Bound Preview** — those same sheets recomposed into what a reader sees.
   Click, arrow-key or drag to turn pages; the leaf carries the right page on
   its front and the next left page on its back, exactly as one sheet does.

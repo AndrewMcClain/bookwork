@@ -16,6 +16,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import pytest
 from PySide6.QtWidgets import QDialog
 
 from bookwork.main_window import MainWindow
@@ -592,3 +593,128 @@ def test_only_the_bound_preview_animates_turns(qtbot, make_pdf):
     assert isinstance(window._bound_preview_pane.page_view, PageTurnView)
     assert not isinstance(window._source_pane.page_view, PageTurnView)
     assert not isinstance(window._imposed_pane.page_view, PageTurnView)
+
+
+# --- Paper size dropdown ---
+
+
+def _panel(qtbot):
+    from bookwork.widgets.imposition_panel import ImpositionPanel
+
+    panel = ImpositionPanel()
+    qtbot.addWidget(panel)
+    return panel
+
+
+def _pick_paper(panel, name):
+    """Select by name the way a user does — `activated` only fires for real
+    interaction, so setCurrentIndex alone would not trigger anything."""
+    index = panel._paper_size.findText(name)
+    assert index >= 0, f"{name!r} not in the dropdown"
+    panel._paper_size.setCurrentIndex(index)
+    panel._paper_size.activated.emit(index)
+
+
+def test_paper_size_defaults_to_the_matching_name(qtbot):
+    """The shipped default is Letter landscape, so the dropdown should say so
+    rather than calling the out-of-box configuration custom."""
+    panel = _panel(qtbot)
+    assert panel._paper_size.currentText().startswith("Letter")
+
+
+def test_choosing_a_paper_size_fills_in_the_dimensions(qtbot):
+    from bookwork.widgets.imposition_panel import PAPER_SIZES
+
+    panel = _panel(qtbot)
+    name = next(n for n in PAPER_SIZES if n.startswith("A4"))
+    width_in, height_in = PAPER_SIZES[name]
+
+    _pick_paper(panel, name)
+
+    assert panel._sheet_width_in.value() == pytest.approx(width_in, abs=0.001)
+    assert panel._sheet_height_in.value() == pytest.approx(height_in, abs=0.001)
+
+
+def test_paper_sizes_are_landscape(qtbot):
+    """The sheet is folded across its width, so every listed size is wider
+    than it is tall — a Letter booklet is Letter turned sideways."""
+    from bookwork.widgets.imposition_panel import PAPER_SIZES
+
+    for name, (width_in, height_in) in PAPER_SIZES.items():
+        assert width_in > height_in, f"{name} is not landscape"
+
+
+@pytest.mark.parametrize("field", ["_sheet_width_in", "_sheet_height_in"])
+def test_editing_a_dimension_switches_to_custom(qtbot, field):
+    panel = _panel(qtbot)
+    assert not panel._paper_size.currentText().startswith("(Custom")
+
+    getattr(panel, field).setValue(9.25)
+
+    assert panel._paper_size.currentText() == "(Custom)"
+
+
+def test_choosing_custom_leaves_the_dimensions_alone(qtbot):
+    """(Custom) describes where you already are; there is nothing to switch
+    to, so picking it must not disturb a size already dialled in."""
+    panel = _panel(qtbot)
+    panel._sheet_width_in.setValue(9.25)
+    panel._sheet_height_in.setValue(6.5)
+
+    _pick_paper(panel, "(Custom)")
+
+    assert panel._sheet_width_in.value() == pytest.approx(9.25)
+    assert panel._sheet_height_in.value() == pytest.approx(6.5)
+
+
+def test_choosing_custom_after_a_preset_keeps_that_presets_dimensions(qtbot):
+    from bookwork.widgets.imposition_panel import PAPER_SIZES
+
+    panel = _panel(qtbot)
+    name = next(n for n in PAPER_SIZES if n.startswith("Legal"))
+    _pick_paper(panel, name)
+    width, height = panel._sheet_width_in.value(), panel._sheet_height_in.value()
+
+    _pick_paper(panel, "(Custom)")
+
+    assert panel._sheet_width_in.value() == pytest.approx(width)
+    assert panel._sheet_height_in.value() == pytest.approx(height)
+
+
+def test_the_chosen_paper_size_reaches_the_emitted_params(qtbot):
+    from bookwork.widgets.imposition_panel import PAPER_SIZES
+
+    panel = _panel(qtbot)
+    name = next(n for n in PAPER_SIZES if n.startswith("A4"))
+    _pick_paper(panel, name)
+
+    params = panel.current_params()
+
+    width_in, height_in = PAPER_SIZES[name]
+    assert params.sheet_width_pt == pytest.approx(width_in * 72.0, abs=0.1)
+    assert params.sheet_height_pt == pytest.approx(height_in * 72.0, abs=0.1)
+
+
+def test_loading_a_preset_names_its_paper_size(qtbot):
+    """A saved imposition preset stores dimensions, not a paper name, so the
+    dropdown has to work the name back out."""
+    from bookwork.imposition import ImpositionParams
+    from bookwork.widgets.imposition_panel import PAPER_SIZES
+
+    panel = _panel(qtbot)
+    name = next(n for n in PAPER_SIZES if n.startswith("A3"))
+    width_in, height_in = PAPER_SIZES[name]
+
+    panel._set_fields(ImpositionParams(sheet_width_pt=width_in * 72.0, sheet_height_pt=height_in * 72.0))
+
+    assert panel._paper_size.currentText() == name
+
+
+def test_loading_an_unusual_size_says_custom(qtbot):
+    from bookwork.imposition import ImpositionParams
+
+    panel = _panel(qtbot)
+
+    panel._set_fields(ImpositionParams(sheet_width_pt=700.0, sheet_height_pt=500.0))
+
+    assert panel._paper_size.currentText() == "(Custom)"

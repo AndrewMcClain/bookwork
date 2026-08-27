@@ -51,6 +51,46 @@ _PT_PER_INCH = 72.0
 #: Sentinel item at the top of the preset dropdown — no preset selected.
 _NO_PRESET = "(no preset)"
 
+#: Shown in the paper-size dropdown when the sheet doesn't match a known size.
+#: Selecting it deliberately changes nothing — it is a label for where you
+#: already are, not a size to switch to.
+_CUSTOM_PAPER = "(Custom)"
+
+#: Sheet sizes offered in the dropdown, `name: (width_in, height_in)`.
+#:
+#: Wide edge first, i.e. fed landscape, because the sheet is folded across its
+#: width to make the leaves — a "Letter" booklet is Letter turned sideways and
+#: folded in half, not a Letter-shaped page. The names carry their dimensions
+#: so the dropdown is unambiguous about which way round it means.
+#:
+#: ISO sizes are converted from their millimetre definitions rather than
+#: rounded inch values, so A4 is 297x210mm exactly.
+_MM_PER_INCH = 25.4
+PAPER_SIZES: dict[str, tuple[float, float]] = {
+    "Letter — 11 × 8.5 in": (11.0, 8.5),
+    "Legal — 14 × 8.5 in": (14.0, 8.5),
+    "Tabloid — 17 × 11 in": (17.0, 11.0),
+    "A3 — 420 × 297 mm": (420 / _MM_PER_INCH, 297 / _MM_PER_INCH),
+    "A4 — 297 × 210 mm": (297 / _MM_PER_INCH, 210 / _MM_PER_INCH),
+    "A5 — 210 × 148 mm": (210 / _MM_PER_INCH, 148 / _MM_PER_INCH),
+    "B5 — 250 × 176 mm": (250 / _MM_PER_INCH, 176 / _MM_PER_INCH),
+}
+
+#: The spinboxes show three decimals, so anything closer than this is the same
+#: size as far as the user can see or enter.
+_PAPER_MATCH_TOLERANCE_IN = 0.001
+
+
+def paper_size_name(width_in: float, height_in: float) -> str:
+    """The dropdown entry matching these dimensions, or `_CUSTOM_PAPER`."""
+    for name, (width, height) in PAPER_SIZES.items():
+        if (
+            abs(width - width_in) <= _PAPER_MATCH_TOLERANCE_IN
+            and abs(height - height_in) <= _PAPER_MATCH_TOLERANCE_IN
+        ):
+            return name
+    return _CUSTOM_PAPER
+
 
 class ImpositionPanel(QWidget):
     params_changed = Signal(ImpositionParams)
@@ -85,6 +125,21 @@ class ImpositionPanel(QWidget):
 
         self._sheet_width_in = self._make_inch_spinbox()
         self._sheet_height_in = self._make_inch_spinbox()
+
+        self._paper_size = QComboBox()
+        self._paper_size.addItems([*PAPER_SIZES, _CUSTOM_PAPER])
+        self._paper_size.setToolTip(
+            "Fills in the sheet size below. Sizes are listed wide edge first:\n"
+            "the sheet is fed landscape and folded across its width, so a\n"
+            "Letter booklet uses Letter turned sideways.\n\n"
+            "Editing the width or height directly switches this to (Custom).\n"
+            "Choosing (Custom) leaves the dimensions alone."
+        )
+        # `activated` fires only on a real user pick, so syncing the dropdown
+        # back from the spinboxes below cannot loop.
+        self._paper_size.activated.connect(self._on_paper_size_selected)
+        for spinbox in (self._sheet_width_in, self._sheet_height_in):
+            spinbox.valueChanged.connect(self._sync_paper_size)
         self._margin_in = self._make_inch_spinbox()
         self._gutter_in = self._make_inch_spinbox()
 
@@ -136,6 +191,7 @@ class ImpositionPanel(QWidget):
         form = QFormLayout()
         form.addRow("Preset", preset_row)
         form.addRow("Signature size (pages)", self._signature_size)
+        form.addRow("Paper size", self._paper_size)
         form.addRow("Sheet width (in)", self._sheet_width_in)
         form.addRow("Sheet height (in)", self._sheet_height_in)
         form.addRow("Margin (in)", self._margin_in)
@@ -159,6 +215,32 @@ class ImpositionPanel(QWidget):
         layout.addWidget(self._stats_label)
         layout.addStretch(1)
 
+    def _on_paper_size_selected(self, _index: int) -> None:
+        """Fill in the sheet size from the dropdown.
+
+        `(Custom)` is a no-op by design: it describes a sheet size that isn't
+        one of the presets, so there is nothing to switch *to*. Picking it
+        should never disturb dimensions the user has already dialled in.
+        """
+        size = PAPER_SIZES.get(self._paper_size.currentText())
+        if size is None:
+            return
+        width_in, height_in = size
+        self._sheet_width_in.setValue(width_in)
+        self._sheet_height_in.setValue(height_in)
+
+    def _sync_paper_size(self) -> None:
+        """Point the dropdown at whatever the spinboxes now say.
+
+        Runs on every change to either dimension, including the ones
+        `_on_paper_size_selected` just made — it resolves to the same entry in
+        that case, so no guard flag is needed. Typing a size by hand therefore
+        lands on `(Custom)` unless it happens to match a listed size exactly,
+        in which case naming it is more useful than calling it custom.
+        """
+        name = paper_size_name(self._sheet_width_in.value(), self._sheet_height_in.value())
+        self._paper_size.setCurrentIndex(self._paper_size.findText(name))
+
     @staticmethod
     def _make_inch_spinbox() -> QDoubleSpinBox:
         box = QDoubleSpinBox()
@@ -178,6 +260,7 @@ class ImpositionPanel(QWidget):
         self._include_endpapers.setChecked(params.include_endpapers)
         self._separate_cover.setChecked(params.separate_cover)
         self._pad_last_signature_to_full.setChecked(params.pad_last_signature_to_full)
+        self._sync_paper_size()
 
     def current_params(self) -> ImpositionParams:
         """Build an `ImpositionParams` from the current field values.
