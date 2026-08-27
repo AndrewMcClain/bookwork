@@ -181,9 +181,7 @@ class MainWindow(QMainWindow):
         self._imposed_pane.load_document(PdfDocument.from_fitz_document(imposed_doc, "imposed.pdf"))
 
         bound_doc = build_bound_preview(imposed_doc, source_doc.page_count, params)
-        self._bound_preview_pane.load_document(
-            PdfDocument.from_fitz_document(bound_doc, "bound-preview.pdf")
-        )
+        self._bound_preview_pane.load_document(PdfDocument.from_fitz_document(bound_doc, "bound-preview.pdf"))
 
         self._imposition_panel.set_stats(compute_stats(source_doc.page_count, params))
         self._current_imposition_params = params

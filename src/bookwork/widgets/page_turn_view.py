@@ -177,9 +177,7 @@ class LeafCurve(NamedTuple):
         bottom — for drawing its border as one continuous curve rather than
         per strip, which would show seams."""
         top = [QPointF(sample.x, top_y + sample.inset) for sample in self.samples]
-        bottom = [
-            QPointF(sample.x, top_y + page_h - sample.inset) for sample in reversed(self.samples)
-        ]
+        bottom = [QPointF(sample.x, top_y + page_h - sample.inset) for sample in reversed(self.samples)]
         return QPolygonF(top + bottom)
 
 
@@ -267,6 +265,7 @@ def edge_stack_width(leaves: int, scale: float, page_w: float) -> float:
     true_width = leaves * PAPER_CALIPER_PT * scale
     return min(max(true_width, _MIN_STACK_PX), page_w * _MAX_STACK_FRACTION_OF_PAGE)
 
+
 def cast_shadow_strength(progress: float) -> float:
     """How strongly the raised leaf darkens the page beneath it.
 
@@ -278,6 +277,7 @@ def cast_shadow_strength(progress: float) -> float:
     switch from reading as a flicker.
     """
     return abs(math.sin(2 * progress * math.pi))
+
 
 def book_layout(widget_w: int, widget_h: int, page_w: float, page_h: float) -> tuple[float, float, float]:
     """Fit an open book — two pages side by side — into the widget,
@@ -516,9 +516,7 @@ class PageTurnView(QWidget):
             return False
         left_static, leaf_front = self._halves(earlier)
         leaf_back, right_static = self._halves(later)
-        self._turn = _Turn(
-            left_static, right_static, leaf_front, leaf_back, earlier, later, forward
-        )
+        self._turn = _Turn(left_static, right_static, leaf_front, leaf_back, earlier, later, forward)
         self._backdrop = None  # the static pages either side of the leaf changed
         return True
 
@@ -739,7 +737,9 @@ class PageTurnView(QWidget):
         painter.setPen(_PAGE_EDGE)
         painter.drawRect(target)
 
-    def _draw_leaf(self, painter: QPainter, spine_x: float, top_y: float, page_w: float, page_h: float) -> None:
+    def _draw_leaf(
+        self, painter: QPainter, spine_x: float, top_y: float, page_w: float, page_h: float
+    ) -> None:
         curve = leaf_curve(self._progress, page_w, page_h, spine_x, top_y)
         face = self._turn.leaf_back if curve.showing_back else self._turn.leaf_front
         if face is None or face.isNull():
@@ -912,9 +912,7 @@ class PageTurnView(QWidget):
             return
         turn = self._turn
         past_halfway = (
-            self._progress > _DRAG_COMMIT_FRACTION
-            if turn.forward
-            else self._progress < _DRAG_COMMIT_FRACTION
+            self._progress > _DRAG_COMMIT_FRACTION if turn.forward else self._progress < _DRAG_COMMIT_FRACTION
         )
         if not past_halfway:
             self._animate_to(turn.start_progress)

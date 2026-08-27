@@ -87,6 +87,7 @@ def test_spine_end_of_the_leaf_never_moves():
 def test_leaf_lies_flat_at_both_ends_and_curls_in_between():
     """The bow is what separates a turning page from a flat card being
     swung around, but a page resting on the stack has to be flat again."""
+
     def bow(curve):
         # How far the middle of the page departs from the straight line
         # between its two ends.
@@ -407,9 +408,10 @@ def _fraction_differing(a, b, tolerance=12):
         for x in range(0, a.width(), 3):
             pa, pb = a.pixelColor(x, y), b.pixelColor(x, y)
             total += 1
-            if max(
-                abs(pa.red() - pb.red()), abs(pa.green() - pb.green()), abs(pa.blue() - pb.blue())
-            ) > tolerance:
+            if (
+                max(abs(pa.red() - pb.red()), abs(pa.green() - pb.green()), abs(pa.blue() - pb.blue()))
+                > tolerance
+            ):
                 differing += 1
     return differing / max(total, 1)
 
@@ -469,7 +471,9 @@ def test_clicking_the_right_page_goes_forward(qtbot, bound_preview):
     view.display(bound_preview, 1)
 
     with qtbot.waitSignal(view.step_requested) as caught:
-        qtbot.mouseClick(view, Qt.MouseButton.LeftButton, pos=QPoint(view.width() * 3 // 4, view.height() // 2))
+        qtbot.mouseClick(
+            view, Qt.MouseButton.LeftButton, pos=QPoint(view.width() * 3 // 4, view.height() // 2)
+        )
 
     assert caught.args == [1]
 
@@ -484,9 +488,7 @@ def test_clicking_the_left_page_goes_back(qtbot, bound_preview):
     assert caught.args == [-1]
 
 
-@pytest.mark.parametrize(
-    ("key", "expected"), [(Qt.Key.Key_Right, 1), (Qt.Key.Key_Left, -1)]
-)
+@pytest.mark.parametrize(("key", "expected"), [(Qt.Key.Key_Right, 1), (Qt.Key.Key_Left, -1)])
 def test_arrow_keys_page_through_the_book(qtbot, bound_preview, key, expected):
     view = _view(qtbot, duration_ms=0)
     view.display(bound_preview, 1)
@@ -662,8 +664,12 @@ def _press(view, fraction):
     QApplication.sendEvent(
         view,
         QMouseEvent(
-            QEvent.Type.MouseButtonPress, pos, pos,
-            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+            QEvent.Type.MouseButtonPress,
+            pos,
+            pos,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
         ),
     )
 
@@ -674,8 +680,12 @@ def _move(view, fraction):
     QApplication.sendEvent(
         view,
         QMouseEvent(
-            QEvent.Type.MouseMove, pos, pos,
-            Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+            QEvent.Type.MouseMove,
+            pos,
+            pos,
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
         ),
     )
 
@@ -686,8 +696,12 @@ def _release(view, fraction):
     QApplication.sendEvent(
         view,
         QMouseEvent(
-            QEvent.Type.MouseButtonRelease, pos, pos,
-            Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+            QEvent.Type.MouseButtonRelease,
+            pos,
+            pos,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
         ),
     )
 

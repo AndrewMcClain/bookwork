@@ -574,7 +574,9 @@ def compute_bound_preview_views(slot_count: int) -> list[tuple[int, ...]]:
     return views
 
 
-def build_bound_preview(imposed: fitz.Document, src_page_count: int, params: ImpositionParams) -> fitz.Document:
+def build_bound_preview(
+    imposed: fitz.Document, src_page_count: int, params: ImpositionParams
+) -> fitz.Document:
     """Reconstruct what a reader would actually see flipping through the
     bound book: single-page views at the front/back cover, two-page spreads
     everywhere else — by cropping each page's cell back out of the
@@ -599,7 +601,9 @@ def build_bound_preview(imposed: fitz.Document, src_page_count: int, params: Imp
         else:
             left_index, right_index = view
             page = out.new_page(width=cell_width * 2, height=cell_height)
-            _copy_cell(page, imposed, mapping[left_index], fitz.Rect(0, 0, cell_width, cell_height), cell_width)
+            _copy_cell(
+                page, imposed, mapping[left_index], fitz.Rect(0, 0, cell_width, cell_height), cell_width
+            )
             _copy_cell(
                 page,
                 imposed,

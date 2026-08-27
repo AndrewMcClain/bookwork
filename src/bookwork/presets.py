@@ -128,11 +128,7 @@ def load_preset(settings: QSettings, name: str) -> ImpositionParams:
     # and QSettings returns None for those. Drop them so the dataclass
     # default applies, rather than passing None into ImpositionParams.
     return ImpositionParams(
-        **{
-            field: _coerce(raw, _FIELD_TYPES[field])
-            for field, raw in raw_values.items()
-            if raw is not None
-        }
+        **{field: _coerce(raw, _FIELD_TYPES[field]) for field, raw in raw_values.items() if raw is not None}
     )
 
 

@@ -44,8 +44,22 @@ def test_signature_order_matches_psbook_s8_two_full_signatures():
     # 16 pages, signature size 8 (2 sheets/signature, 2 signatures, no padding).
     order = compute_signature_order(page_count=16, signature_size_pages=8)
     expected = [
-        7, 0, 1, 6, 5, 2, 3, 4,  # pages 8,1,2,7,6,3,4,5 (0-indexed)
-        15, 8, 9, 14, 13, 10, 11, 12,  # pages 16,9,10,15,14,11,12,13
+        7,
+        0,
+        1,
+        6,
+        5,
+        2,
+        3,
+        4,  # pages 8,1,2,7,6,3,4,5 (0-indexed)
+        15,
+        8,
+        9,
+        14,
+        13,
+        10,
+        11,
+        12,  # pages 16,9,10,15,14,11,12,13
     ]
     assert order == expected
 
@@ -65,11 +79,26 @@ def test_signature_order_matches_psbook_s20_single_signature():
     # 20 pages, signature size 20 (1 signature of 5 sheets, no padding needed).
     order = compute_signature_order(page_count=20, signature_size_pages=20)
     expected = [
-        19, 0, 1, 18,
-        17, 2, 3, 16,
-        15, 4, 5, 14,
-        13, 6, 7, 12,
-        11, 8, 9, 10,
+        19,
+        0,
+        1,
+        18,
+        17,
+        2,
+        3,
+        16,
+        15,
+        4,
+        5,
+        14,
+        13,
+        6,
+        7,
+        12,
+        11,
+        8,
+        9,
+        10,
     ]
     assert order == expected
 
@@ -220,8 +249,12 @@ def test_crop_marks_never_fall_inside_the_actual_content_rect(make_pdf):
         for item in drawing["items"]:
             for point in item[1:]:
                 if hasattr(point, "x") and point.x < params.sheet_width_pt / 2:
-                    is_strictly_inside = content.x0 < point.x < content.x1 and content.y0 < point.y < content.y1
-                    assert not is_strictly_inside, f"mark point {point} falls inside the content rect {content}"
+                    is_strictly_inside = (
+                        content.x0 < point.x < content.x1 and content.y0 < point.y < content.y1
+                    )
+                    assert not is_strictly_inside, (
+                        f"mark point {point} falls inside the content rect {content}"
+                    )
 
 
 def test_crop_marks_can_be_disabled(make_pdf):
@@ -415,11 +448,29 @@ def test_compute_signature_order_with_endpapers():
     # test_compute_signature_order_with_endpapers_minimized_by_default for
     # the new default behavior with the same inputs.
     order = compute_signature_order(
-        page_count=8, signature_size_pages=8, leading_blanks=1, trailing_blanks=1, pad_last_signature_to_full=True
+        page_count=8,
+        signature_size_pages=8,
+        leading_blanks=1,
+        trailing_blanks=1,
+        pad_last_signature_to_full=True,
     )
     assert order == [
-        6, None, 0, 5, 4, 1, 2, 3,  # chunk 0: [blank,0,1,2,3,4,5,6]
-        None, 7, None, None, None, None, None, None,  # chunk 1: [7,blank x7]
+        6,
+        None,
+        0,
+        5,
+        4,
+        1,
+        2,
+        3,  # chunk 0: [blank,0,1,2,3,4,5,6]
+        None,
+        7,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,  # chunk 1: [7,blank x7]
     ]
 
 
@@ -429,14 +480,28 @@ def test_compute_signature_order_with_endpapers_minimized_by_default():
     # signature padded only to the next multiple of 4 (4, not 8).
     order = compute_signature_order(page_count=8, signature_size_pages=8, leading_blanks=1, trailing_blanks=1)
     assert order == [
-        6, None, 0, 5, 4, 1, 2, 3,  # chunk 0 (unchanged): [blank,0,1,2,3,4,5,6]
-        None, 7, None, None,  # chunk 1: [7,blank,blank,blank] -> len 4, not 8
+        6,
+        None,
+        0,
+        5,
+        4,
+        1,
+        2,
+        3,  # chunk 0 (unchanged): [blank,0,1,2,3,4,5,6]
+        None,
+        7,
+        None,
+        None,  # chunk 1: [7,blank,blank,blank] -> len 4, not 8
     ]
 
 
 def test_bound_reading_order_with_endpapers_shifts_content_and_leaves_blanks():
     mapping = bound_reading_order(
-        page_count=8, signature_size_pages=8, leading_blanks=1, trailing_blanks=1, pad_last_signature_to_full=True
+        page_count=8,
+        signature_size_pages=8,
+        leading_blanks=1,
+        trailing_blanks=1,
+        pad_last_signature_to_full=True,
     )
     assert len(mapping) == 16
     assert mapping[0] is None  # leading blank (glued to front case)
@@ -464,7 +529,9 @@ def test_build_bound_preview_with_endpapers_end_to_end(make_pdf):
 
     preview = build_bound_preview(imposed, src_page_count=8, params=params)
 
-    assert preview.page_count == 9  # [blank],[1,2],[3,4],[5,6],[7,8],[blank,blank],[blank,blank],[blank,blank],[blank]
+    assert (
+        preview.page_count == 9
+    )  # [blank],[1,2],[3,4],[5,6],[7,8],[blank,blank],[blank,blank],[blank,blank],[blank]
 
     # Front cover: blank, alone, single-width.
     assert preview[0].get_text().strip() == ""
@@ -499,7 +566,9 @@ def test_compute_stats_accounts_for_endpapers():
 
     with_endpapers = compute_stats(
         page_count=8,
-        params=ImpositionParams(signature_size_pages=8, include_endpapers=True, pad_last_signature_to_full=True),
+        params=ImpositionParams(
+            signature_size_pages=8, include_endpapers=True, pad_last_signature_to_full=True
+        ),
     )
     assert with_endpapers.blank_pages_added == 8
     assert with_endpapers.signature_count == 2
@@ -510,7 +579,9 @@ def test_compute_stats_endpapers_minimized_by_default():
     # Same as above, but without forcing full padding: the second signature
     # only pads up to a multiple of 4 (4, not 8) -> chunk sizes [8, 4],
     # padded total 12 (vs. page_count 8) -> 4 blanks, not 8.
-    stats = compute_stats(page_count=8, params=ImpositionParams(signature_size_pages=8, include_endpapers=True))
+    stats = compute_stats(
+        page_count=8, params=ImpositionParams(signature_size_pages=8, include_endpapers=True)
+    )
     assert stats.blank_pages_added == 4
     assert stats.signature_count == 2
     assert stats.sheet_side_count == 6
@@ -538,7 +609,9 @@ def test_imposition_params_rejects_separate_cover_with_endpapers():
 def test_impose_separate_cover_sheet_count(make_pdf):
     path = make_pdf(num_pages=10)
     src = fitz.open(path)
-    out = impose(src, ImpositionParams(signature_size_pages=8, separate_cover=True, pad_last_signature_to_full=True))
+    out = impose(
+        src, ImpositionParams(signature_size_pages=8, separate_cover=True, pad_last_signature_to_full=True)
+    )
     # cover: 2 sheet sides. interior (8 pages + 2 inside-cover blanks = 10,
     # rounds up to a full second 8-page signature, 16): 8 sheet sides.
     # Total 10.

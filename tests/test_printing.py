@@ -126,9 +126,7 @@ def _rects(paper_w, paper_h, left, top, right, bottom, dpi=300):
     """Paper and printable rects in device pixels, from margins in points."""
     s = dpi / 72.0
     paper = QRectF(0, 0, paper_w * s, paper_h * s)
-    printable = QRectF(
-        left * s, top * s, (paper_w - left - right) * s, (paper_h - top - bottom) * s
-    )
+    printable = QRectF(left * s, top * s, (paper_w - left - right) * s, (paper_h - top - bottom) * s)
     return paper, printable
 
 

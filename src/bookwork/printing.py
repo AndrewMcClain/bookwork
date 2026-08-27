@@ -111,7 +111,9 @@ def print_document(document: PdfDocument, printer: QPrinter) -> None:
             if offset > 0:
                 printer.newPage()
             image = document.render_page(page_number - 1, dpi=PRINT_DPI)
-            target = _print_target_rect(QSizeF(image.size()), PRINT_DPI, paper, printable, printer.resolution())
+            target = _print_target_rect(
+                QSizeF(image.size()), PRINT_DPI, paper, printable, printer.resolution()
+            )
             painter.drawImage(target, image)
     finally:
         painter.end()
