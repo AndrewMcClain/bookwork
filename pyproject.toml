@@ -27,6 +27,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-qt>=4.5.0",
     "ruff>=0.14.0",
+    "commitizen>=4.0.0",
 ]
 
 [tool.ruff]
@@ -46,3 +47,15 @@ extend-select = ["N"]
 # Asserting is the entire point of a test, and tests deliberately poke at
 # private helpers to check geometry and cache behaviour.
 "tests/*" = ["S101", "SLF001"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+version_files = ["pyproject.toml:^version"]
+tag_format = "v$version"
+update_changelog_on_bump = true
+# Pre-1.0: a breaking change bumps the minor, not to 1.0. Drop this once the
+# imposition parameters and preset format are considered settled.
+major_version_zero = true
+# Everything earlier predates Conventional Commits and would only add noise.
+changelog_start_rev = "580efa6"
