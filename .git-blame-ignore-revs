@@ -1,0 +1,7 @@
+# Revisions that only reformat. Ignore them when attributing lines:
+#   git blame --ignore-revs-file .git-blame-ignore-revs <file>
+# Configure it once so every blame does this automatically:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style: apply ruff format
+3f260d0fd836a2c3c9fbef5e0741f5bd3db25bf1
