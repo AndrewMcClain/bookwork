@@ -103,10 +103,11 @@ include:
 - **The imposition settings**, or the preset name — signature size, sheet size,
   margin, gutter, and which of the cover/endpaper/padding boxes were ticked.
 - **Your OS**, and whether you are running from source or a packaged build.
-- The source PDF if you can share one. If you cannot — plenty of manuscripts
-  are private — a description of its page count and page size is usually
-  enough, since most bugs here are about counts and geometry rather than
-  content.
+- **The document's shape** — page count, page size, and whether every page is
+  the same size. Please don't send the PDF: manuscripts are usually private,
+  and nearly every bug here turns on counts and geometry rather than content.
+  If some document reproduces something those details don't explain, a minimal
+  PDF that shows the same problem is more useful than the original anyway.
 
 ## Commit messages
 
