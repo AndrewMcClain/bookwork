@@ -1,272 +1,213 @@
 # Decisions
 
-Choices that are not obvious from reading the code, and the failures that
-motivated them. If you are about to change something here, the entry probably
-explains why it looks the way it does.
+Things that aren't obvious from the code, and the failures behind them. If
+you're about to change something that looks wrong, check here first.
 
-New entries go at the end of their section. Say what was decided, why, and what
-broke if something did.
+New entries at the end of their section: what was decided, why, what broke.
 
 ## Imposition
 
 ### The last signature is padded to a multiple of 4, not to a full signature
 
-`psbook` always pads a trailing partial signature up to the full signature
-length. That is uniform but wasteful: a 4-page document at a 20-page signature
-size costs 5 sheets instead of 1. Bookwork pads only to the physical minimum by
-default, with `pad_last_signature_to_full` to restore `psbook`'s behaviour.
-
-The tests that pin exact `psbook` output pass that flag explicitly, so they
-still verify compatibility rather than quietly encoding the new default.
+`psbook` always pads full, which wastes paper — a 4-page document at a 20-page
+signature size costs 5 sheets instead of 1. We pad to the physical minimum;
+`pad_last_signature_to_full` restores `psbook`'s behaviour, and the tests that
+pin its exact output pass that flag explicitly.
 
 ### One resolver turns parameters into signature arguments
 
-`impose`, `build_bound_preview` and `compute_stats` all need the same
-derivation from `ImpositionParams` — leading/trailing blanks, whether a cover
-folio is split off, padding mode. That was originally written out in four
-places.
+`impose`, `build_bound_preview` and `compute_stats` need the same derivation
+from `ImpositionParams`. It was written out in four places; it's now
+`_SignatureLayout.resolve()`.
 
-It is now `_SignatureLayout.resolve()`. The reason matters: if the `impose` copy
-and the `build_bound_preview` copy ever drifted, **Bound Preview would show a
-different pagination than the sheets that actually print** — precisely the class
-of bug that tab exists to catch. Four copies also meant a new parameter had to
-be threaded through four call sites, and one was missed, which is how presets
+The reason matters: if the `impose` and `build_bound_preview` copies drifted,
+**Bound Preview would show a different pagination than the sheets that print** —
+exactly what that tab exists to catch. Four copies also meant a new parameter
+had to be threaded through four sites, and one was missed, which is how presets
 came to silently drop a field.
 
 ### Crop marks are outward L-ticks at the fitted content rect
 
-Two separate fixes ended up here.
-
-They were originally drawn at the nominal cell boundary. After aspect-ratio
-fitting, a page that does not match its cell's proportions is letterboxed, so
-the marks pointed at empty space. They now track `_fitted_content_rect`, which
-reproduces PyMuPDF's own placement maths.
-
-They were also a `+` centred on each corner, which puts half of every arm *on
-the page*. Trimming along the mark left ink on the finished page. Both arms now
-point outward into the margin, meeting the content at exactly one point.
+Two fixes. They were drawn at the nominal cell boundary, so a page whose aspect
+ratio didn't match got letterboxed and the marks pointed at empty space; they
+now track `_fitted_content_rect`. They were also a `+` centred on each corner,
+putting half of every arm *on the page* — trimming along the mark left ink on
+the finished page. Both arms now point outward, meeting the content at one
+point.
 
 ## Printing
 
 ### `setFullPage(True)` is never used
 
-Most real printers — laser especially — have a hardware margin they cannot image
-into. Forcing "full page" does not grant access to it; it makes Qt claim the
-whole sheet is printable and lets the driver silently clip whatever falls
-outside. Confirmed against a real laser printer: content near the edges simply
-vanished.
-
-Leaving it unset means `pageRect()` reports the real printable area, which
-`print_document` fits into.
+Printers have a hardware margin they can't image into. Forcing "full page"
+doesn't grant access to it — it makes Qt claim the whole sheet is printable and
+lets the driver silently clip what falls outside. Confirmed on a real laser
+printer: content near the edges vanished. Leaving it unset means `pageRect()`
+reports the real printable area.
 
 ### The painter's origin is already the printable area
 
-Without `setFullPage(True)`, `QPainter`'s coordinate origin during a print job
-is the top-left of the *printable area*, not the paper. `pageRect()` reports
-that area's position in absolute paper coordinates. Using it directly as the
-drawing rect therefore applies the offset twice, pushing content off the
-opposite edge by the amount it was pulled in on this one.
-
-Use its size, not its position. This was found while fixing the clipping above
-and would otherwise have just moved the clip to the other edge.
+Without `setFullPage(True)`, `QPainter`'s origin during a print job is the
+printable area's top-left, not the paper's. `pageRect()` reports that area's
+position in absolute paper coordinates, so using it as the drawing rect applies
+the offset twice and pushes content off the opposite edge. Use its size, not
+its position. Found while fixing the clipping above; otherwise it would have
+just moved the clip.
 
 ### The sheet is shrunk to fit and centred on the paper
 
-Two separate things, both learned from real output.
+An earlier version drew at native size and protected only *content* from
+clipping, reasoning that content is the artefact and marks are guidance. That's
+backwards: crop marks are what you fold and cut along, so a sheet missing them
+can't be trimmed accurately at all. Better a slightly smaller book you can cut
+straight.
 
-An earlier version drew each sheet at native size and protected only the
-*content* from clipping, on the reasoning that content is the artefact and
-marks are mere guidance. That is backwards for this workflow: crop marks are
-what you fold and cut along, so a sheet whose marks are missing cannot be
-trimmed accurately at all. Better a slightly smaller book you can cut straight
-than a full-size one you cannot. Everything scales together, marks included.
+Centred on the **paper**, not the printable area. The spine runs down the
+middle and the sheet is folded along it, so it must land on the paper's
+centreline. Hardware margins are routinely asymmetric — the printer this was
+developed against reports 16pt top, 10pt bottom — and centring in the printable
+area put the sheet 3pt off and hanging over the opposite edge. Symmetric
+left/right margins hid it there; asymmetric ones give a visibly off-centre fold.
 
-The sheet is centred on the **paper**, not on the printable area. The spine
-runs down the middle of the sheet and the sheet is folded along it, so the
-spine must land on the paper's own centreline. Hardware margins are routinely
-asymmetric — the printer this was developed against reports 16pt at the top
-and 10pt at the bottom — and centring within the printable area shifted the
-sheet 3pt (about 1mm) off centre and hung it over the opposite paper edge.
-Symmetric left/right margins hid this on that particular printer; on one with
-asymmetric horizontal margins it is a visibly off-centre fold.
-
-Note the scale is bounded by the *larger* margin on each axis, doubled: once
-the sheet is centred on the paper, the tighter side limits it, and the room on
-the looser side cannot be used without moving off centre.
-
-The cost, worth knowing: the finished page comes out slightly smaller than
-configured — about 94.8% on that printer, turning a nominal 5.5×8.5" page into
-roughly 5.2×8.05". Because the marks scale with everything else, cutting on
-them still gives consistent pages within a print run; across different
-printers the scale, and so the trim size, can differ.
+Scale is bounded by the *larger* margin per axis, doubled: once centred, the
+tighter side limits it. Cost: pages come out ~95% of nominal, and the scale is
+per-printer, so print a book on one machine.
 
 ### Landscape needs the orientation flag, not just a wide page size
 
-`QPageSize` treats its width/height as the page's *portrait-native* size.
-`QPrinter` has a separate orientation flag. Passing an already-landscape
-792×612 leaves that flag at Portrait: `pageRect()` comes out the right shape, so
-it looks correct in-app, but the metadata a driver reads to decide feed
-direction says Portrait — and it prints portrait. Confirmed on real hardware.
-
-Always give `QPageSize` the narrower-first size and set the orientation flag
-explicitly.
+`QPageSize` treats its dimensions as *portrait-native*; orientation is a
+separate flag. Passing an already-landscape 792×612 leaves it at Portrait —
+`pageRect()` looks right in-app, but the metadata a driver reads for feed
+direction says Portrait, and it prints portrait. Give `QPageSize` the
+narrower-first size and set the flag explicitly.
 
 ## Presets
 
 ### The persisted field list is derived, not written out
 
-`_FIELDS` used to be a hand-maintained tuple. When
-`pad_last_signature_to_full` was added it was not, so presets saved with it on
-came back with it off — silently changing both the imposition and the sheet
-count from what was saved.
-
-It is now derived from `dataclasses.fields(ImpositionParams)`. Note the
-consequence: the settings schema follows the dataclass, so *renaming* a field
-orphans previously-saved values under the old key.
+`_FIELDS` was hand-maintained and didn't get `pad_last_signature_to_full`, so
+presets saved with it on came back with it off — silently changing both the
+imposition and the sheet count. Now derived from
+`dataclasses.fields(ImpositionParams)`. Consequence: the settings schema
+follows the dataclass, so *renaming* a field orphans saved values.
 
 ### Values are converted back to their declared types on load
 
-`QSettings`' ini backend — what Qt uses natively on Linux, and what the tests
-use everywhere — stores everything as text and returns `str` on a genuinely
-fresh read. Within the session that wrote them, an in-process cache returns the
-original typed values.
-
-That masked a total failure: **saved presets did not survive an application
-restart at all.** On restart `ImpositionParams.__post_init__` received `"8"`
-instead of `8` and raised `TypeError` out of a Qt slot, so selecting a preset
-silently did nothing.
-
-`load_preset` now converts using the declared field types. `bool` needs an
-explicit string comparison — Qt writes False as the literal `"false"`, and
-`bool("false")` is `True`.
+`QSettings`' ini backend stores everything as text and returns `str` on a fresh
+read; within the writing session an in-process cache returns typed values. That
+masked a total failure — **saved presets didn't survive a restart at all**, with
+`__post_init__` getting `"8"` instead of `8` and raising `TypeError` out of a Qt
+slot, so selecting a preset silently did nothing. `bool` needs a string
+comparison: Qt writes False as `"false"`, and `bool("false")` is `True`.
 
 ## Bound Preview
 
 ### It crops from the imposed sheets, never re-renders the source
 
-Re-rendering from the source would produce an idealised preview that could agree
-with you while the actual print disagrees. Cropping the already-imposed sheets
-means the preview inherits every real effect — margin shift, gutter, crop marks,
-padding blanks — so a pagination mistake shows up exactly as a reader would meet
-it.
+Re-rendering would give an idealised preview that could agree with you while
+the print disagrees. Cropping the real sheets means the preview inherits margin
+shift, gutter, crop marks and padding blanks.
 
 ### The turning leaf is a curved surface, not a flat plane
 
-A flat trapezoid swung about the spine reads as a card, not paper. The leaf is
-modelled as a section of a cylinder: the cross-section is an arc whose tangent
-rotates steadily from spine to fore edge, integrated to place every point, with
-the bend scaled by `sin(theta)` so the page is genuinely flat at both ends.
+A flat trapezoid swung about the spine reads as a card. The leaf is a section
+of a cylinder: an arc whose tangent rotates from spine to fore edge, integrated
+to place every point, scaled by `sin(theta)` so it's flat at both ends.
 
-Two things fall out of the model rather than needing special cases. The
-horizontal term changes sign at the halfway point, which *is* the leaf passing
-edge-on and starting to show its back. And a curled page still presents a sliver
-of itself side-on, so the leaf never collapses to the zero-width shape a flat
-model degenerates to at exactly 90° — where `QTransform.quadToQuad` has no
-solution and returns `None`.
+Two things fall out rather than needing special cases. The horizontal term
+changes sign at halfway — that *is* the leaf passing edge-on and showing its
+back. And a curled page still presents a sliver side-on, so it never collapses
+to the zero-width shape a flat model hits at 90°, where `quadToQuad` returns
+`None`.
 
-`QTransform` maps a plane to a plane, so the curve is drawn as 20 flat strips.
-Each strip must draw only its own slice; drawing the whole pixmap through a
-strip's transform smears the entire page across the leaf.
+`QTransform` maps plane to plane, so the curve is 20 flat strips. Each strip
+must draw only its own slice — drawing the whole pixmap through a strip's
+transform smears the page across the leaf.
 
 ### A recto and its verso are bound along opposite edges
 
-The projection originally pinned the page image's top-left corner to the spine
-regardless of which face was toward the reader. A recto is bound along its left
-edge, but the verso on the back of that same sheet is bound along its *right*.
-Getting this wrong drew the verso mirrored for the whole second half of every
-turn, then snapped it upright the moment the turn ended.
+The projection pinned the page image's top-left to the spine regardless of
+face. A recto is bound along its left edge; the verso on the back of that same
+sheet along its *right*. Getting it wrong drew the verso mirrored for the whole
+second half of every turn, then snapped it upright when the turn ended.
 
 ### Edge stacks are drawn at real paper thickness
 
-The stacks either side of the spine are `leaves × PAPER_CALIPER_PT` (0.1mm,
-about 80gsm bond) at display scale — not a stylised progress hint. Drawn to
-scale they answer an actual bookbinding question: how thick will the block be.
-This stays legible across the realistic range, a couple of pixels for a 16-page
-pamphlet up to about seventy for a 512-page book.
+`leaves × PAPER_CALIPER_PT` (0.1mm) at display scale — real thickness, not a
+progress hint, so the stacks answer how thick the block will be. Legible across
+the range: a couple of pixels for a 16-page pamphlet, ~70 for 512 pages.
 
-Line density follows the *drawn width*, not the leaf count. One line per leaf
+Line density follows the *drawn width*, not the leaf count; one line per leaf
 packs 120 hairlines into a dozen pixels and reads as a solid slab.
 
-Paper caliper is currently a module constant. It is a real bookbinding variable
-and wants to be configurable, but it is not an imposition parameter — it changes
-nothing about the output — so it does not belong in `ImpositionParams`.
+Caliper is a module constant. It's a real bookbinding variable and wants to be
+configurable, but it isn't an imposition parameter — it changes nothing about
+the output.
 
 ### The static spread is cached during a turn
 
-Per-frame cost is dominated by fill rate, not strip count. The pages and their
-stacks do not change while a leaf turns and are most of the painted area;
-redrawing them every frame put a 2560×1400 window at 48fps. Rendering them once
-per turn and blitting brought every size back above 60fps on the software
-rasteriser.
+Per-frame cost is fill rate, not strip count. The pages and stacks don't change
+while a leaf turns and are most of the painted area; redrawing them each frame
+put a 2560×1400 window at 48fps. Rendering once per turn and blitting brought
+every size back above 60.
 
 ### A press does not act; a committed drag is not restarted
 
-Click and drag share one mouse button, so a press has to stay ambiguous until
-the pointer does or does not travel. Acting on press would make every drag start
-with a jump.
+Click and drag share a button, so a press stays ambiguous until the pointer
+does or doesn't travel — acting on press makes every drag start with a jump.
 
-On release past halfway, the drag sets its leaf running *before* telling the
-pane. `display()` therefore has to notice a turn already heading for that view
-and let it land, rather than starting a second one over the top — which snaps
-the leaf back to the beginning at the exact moment the reader lets go. Invisible
-in the code, glaring on screen.
+On release past halfway the drag sets its leaf running *before* telling the
+pane, so `display()` must let an in-flight turn to that view land rather than
+starting a second one over it. Otherwise the leaf snaps back to the start at
+the moment the reader lets go.
 
 ## Application
 
 ### Every page edit re-imposes through one guarded path
 
-`current_params()` raises `ValueError` on a combination the widgets still accept
-— the signature-size spinbox will hold 6, which is not a multiple of 4. That
-call was originally duplicated across five unguarded call sites.
-
-Unguarded, the exception escapes a Qt slot *after* the page edit has landed. Qt
-logs it to stderr, invisible in a packaged app, and the Imposed and Bound
-Preview tabs are left showing the pre-edit layout. All five now route through
+`current_params()` raises `ValueError` on combinations the widgets accept — the
+spinbox holds 6, which isn't a multiple of 4. That call was duplicated across
+five unguarded sites, where the exception escaped a Qt slot *after* the edit had
+landed: Qt logs to stderr, invisible in a packaged app, leaving Imposed and
+Bound Preview showing the pre-edit layout. All five now use
 `_reimpose_from_panel`.
 
 ### Arrow keys are handled by the focused widget, not as shortcuts
 
-The Bound Preview claims Left/Right. As application shortcuts those would be
-stolen from every text cursor and spinbox in the settings form. It takes focus
-when the tab becomes visible — tied to becoming visible rather than to
-`display()`, which also runs while the tab is hidden on every re-impose and
-would yank focus out of whatever field was being edited.
+As application shortcuts they'd be stolen from every text cursor and spinbox in
+the settings form. The view takes focus when the tab becomes visible — tied to
+becoming visible, not to `display()`, which also runs while the tab is hidden
+on every re-impose and would yank focus mid-edit.
 
 ## Testing
 
 ### Check that a test fails without its fix
 
-Two bugs here were "covered" by tests that passed either way.
-
-The preset round-trip test saved and loaded within one process, so it hit
-`QSettings`' in-process cache and never exercised a real read from disk — which
-is exactly where the bug lived. Preset tests now read through a copy of the ini
-at a path the process has not seen.
-
-The page-turn mirroring test compared rendered frames using the standard test
-PDFs, which are nearly symmetric left-to-right. A mirrored page barely changes
-those pixels. That test now uses deliberately lopsided content and asserts its
-own content is asymmetric enough for the comparison to mean anything.
+Two bugs here were "covered" by tests that passed either way. The preset
+round-trip saved and loaded within one process, hitting `QSettings`' in-process
+cache and never doing a real read from disk — exactly where the bug lived;
+preset tests now read through a copy of the ini at an unseen path. The
+page-turn mirroring test compared renders using near-symmetric test PDFs, where
+mirroring barely moves a pixel; it now uses lopsided content and asserts its
+own content is asymmetric enough to mean anything.
 
 ### Geometry lives in pure functions
 
 `leaf_curve`, `book_layout`, `edge_stack_width`, `cast_shadow_strength` and
-`leaf_source_x` are module-level and take plain numbers. Most of the page-turn
-test suite needs no window and no running animation as a result.
+`leaf_source_x` are module-level and take plain numbers, so most of the
+page-turn suite needs no window and no running animation.
 
 ### Animations are zero-duration under test
 
 An autouse fixture patches the turn duration to 0. Without it, tests assert
-against a widget mid-animation and can tear it down while a `QPropertyAnimation`
-is still driving it.
+against a widget mid-animation and can tear it down while a
+`QPropertyAnimation` is still driving it.
 
 ## Project
 
 ### GPL v3, with development dependencies noted
 
-The project is GPL v3 (see [`COPYING`](../COPYING)). PyMuPDF is AGPL v3 and
-PySide6 is LGPL v3, both compatible.
-
-`pytest`, `pytest-qt` and `pyinstaller` are permissively licensed and are *not*
-included in distributed binaries — they are build and test tooling only, which
-is why their licences do not constrain the project's own.
+GPL v3-or-later ([COPYING](../COPYING)). PyMuPDF is AGPL v3 and PySide6 LGPL
+v3, both compatible — see [third-party.md](third-party.md). `pytest`,
+`pytest-qt` and `pyinstaller` aren't in distributed binaries, so their licences
+don't constrain ours.

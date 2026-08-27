@@ -1,215 +1,116 @@
-# Contributing to Bookwork
+# Contributing
 
-Questions, half-finished pull requests and "is this even the right approach?"
-are all welcome. Everything below is here to save you a wasted afternoon, not
-to be a barrier.
+Questions and half-finished PRs are welcome. This is here to save you a wasted
+afternoon, not to gate you.
 
-## Getting set up
+## Setup
 
 ```bash
 uv sync
-git config core.hooksPath .githooks
-git config blame.ignoreRevsFile .git-blame-ignore-revs
+git config core.hooksPath .githooks            # checks commit messages
+git config blame.ignoreRevsFile .git-blame-ignore-revs   # skips the bulk reformat
 ```
 
-Both `git config` lines are per-clone, and git cannot version them for you.
-The first checks your commit messages before they land; the second stops
-`git blame` attributing everything to a bulk reformat.
-
-Run the app from source with:
-
-```bash
-uv run bookwork [path/to/file.pdf]
-```
+Both git config lines are per-clone; git can't version them for you.
 
 ## Before you push
 
 ```bash
 uv run ruff format src tests
 uv run ruff check src tests
-uv run pytest
+uv run pytest          # QT_QPA_PLATFORM=offscreen if there's no display
 ```
 
-**There is no CI yet**, so these are the only checks that happen. Please
-actually run them.
+**There is no CI**, so these are the only checks that happen.
 
-With no display attached (an SSH session, a container), prefix pytest with
-`QT_QPA_PLATFORM=offscreen`.
+## Before you change anything
 
-## Read docs/decisions.md first
-
-[docs/decisions.md](docs/decisions.md) records choices that are not obvious
-from the code, and the bugs that motivated them. Several things here look like
-mistakes until you know why:
-
-- printing deliberately shrinks each sheet rather than printing at full size
-- the last signature is deliberately *not* padded to a full signature
-- presets derive their field list instead of naming the fields
-- the bound preview crops from imposed sheets rather than re-rendering
-
-If you change something that file describes, update the description in the
-same commit. If you make a call a future reader would otherwise have to
-rediscover, add an entry: what you decided, why, and what broke.
+Read [docs/decisions.md](docs/decisions.md). Several things look like mistakes
+until you know why — printing deliberately shrinks pages, the last signature is
+deliberately not padded full, presets derive their field list. If you change
+something it describes, update it in the same commit.
 
 ## Proposing a change
 
-Open an issue or discussion before starting anything substantial. This is a
-small project and a maintainer's opinion is often the deciding factor — better
-to find that out before you have written it. Obvious bug fixes can go straight
-to a PR.
+Open an issue first for anything substantial; a maintainer's opinion is often
+the deciding factor and it's better to hear it before you've written it.
+Obvious fixes can go straight to a PR.
 
-- **One change per pull request.** Two unrelated fixes are two PRs.
-- **Work on a branch**, not your fork's `main` — otherwise syncing your fork
-  later becomes miserable.
-- **Contribute code you understand.** If you cannot explain why a change works,
-  it is not ready, whoever or whatever wrote it — see
-  [Using AI assistance](#using-ai-assistance).
+- One change per PR.
+- Work on a branch, not your fork's `main`.
+- Contribute code you understand — see [AI](#ai).
 
 ## Tests
 
-Every behaviour change needs a test. The suite is thorough on purpose: this
-tool wastes paper and ink when it is wrong, and several bugs here were subtle
-enough that only a test caught them.
+Every behaviour change needs one. This tool wastes paper when it's wrong.
 
-**Check your test fails without your fix.** This is not a formality — two bugs
-in this repo were "covered" by tests that passed either way. One saved and
-reloaded a preset inside a single process, so it hit an in-memory cache and
-never exercised the real code path. Another compared rendered images using test
-PDFs so nearly symmetric that a horizontally mirrored page barely changed the
-pixels. Both tests looked fine and proved nothing.
+**Check your test fails without your fix.** Two bugs here were "covered" by
+tests that passed either way: one round-tripped a preset inside a single
+process, hitting an in-memory cache instead of the broken path; another
+compared renders using PDFs so symmetric that a mirrored page barely moved a
+pixel.
 
-Conventions worth knowing:
+Geometry lives in pure functions so most of it needs no window. An autouse
+fixture forces animations to zero duration — without it tests race the
+animation. Tests may assert freely and reach into private helpers.
 
-- Geometry lives in module-level pure functions taking plain numbers, so most
-  of it is testable without a window or a running animation.
-- An autouse fixture forces page-turn animations to zero duration. Without it,
-  tests assert against a widget mid-animation and can tear it down while an
-  animation is still driving it.
-- Printing is tested by pointing a `QPrinter` at a PDF file, which exercises
-  the same painter path a real job takes.
-- Tests may assert freely and may reach into private helpers; both are the
-  point, and ruff is configured to allow it under `tests/`.
+## AI
 
-## Using AI assistance
+Most of this repo was written with an AI assistant and the commits say so, so
+forbidding it in yours would be absurd. The bar is the same either way: **you
+understand it, you verified it, and it's yours to contribute** under GPL
+v3-or-later. (Whether generated text carries copyright is unsettled; opening a
+PR asserts the contribution is yours to give.)
 
-Yes, and it would be odd to pretend otherwise: most of this repository was
-written with an AI assistant, and the commits say so — 29 of the first 33 carry
-a `Co-Authored-By` trailer. A project whose own history is full of AI-assisted
-work is in no position to forbid it in yours.
+That bar is harder to clear for generated code, because the failure mode is
+code that *looks* right — both test examples above were AI-written, and neither
+was caught by reading the diff.
 
-So the rule is not about the tool. It is the same bar every contribution meets:
-
-- **You understand it.** You can explain why it works, and what would break it.
-- **You verified it.** Tests that actually fail without your change; for
-  anything about printing or layout, output you have looked at.
-- **You have the right to contribute it** under GPL v3-or-later. Whether
-  machine-generated text carries copyright is unsettled, and this project
-  cannot resolve that for you — but by opening a PR you are asserting the
-  contribution is yours to give.
-
-That bar is not boilerplate, and it is stricter in practice for generated code,
-because the failure mode is code that *looks* right. Real examples from this
-repository, all AI-written and all caught by verification rather than by
-review:
-
-- A test compared rendered images to prove a page was not mirrored — using test
-  PDFs so nearly symmetric that mirroring one barely moved a pixel. It passed
-  whether the bug was present or not.
-- A preset round-trip test saved and loaded within a single process, so it hit
-  an in-memory cache and never touched the code path where the bug actually
-  lived. Presets were broken across every restart and the test was green.
-- A duplicated branch was removed as redundant. It was redundant — because both
-  halves were doing the same wrong thing.
-
-None of those were caught by reading the diff. They were caught by asking
-whether the test failed without the fix, and by looking at the output.
-
-If you use an assistant, add the trailer:
-
-```
-Co-Authored-By: <assistant name> <email or noreply address>
-```
-
-Not as a warning label — as provenance, the same reason human co-authors get
-one.
+Add a `Co-Authored-By:` trailer. Provenance, not a warning label.
 
 ## Reporting a bug
 
-Bookwork produces physical output, so the useful details are unusual. Please
-include:
+This produces physical output, so the useful details are unusual:
 
-- **Whether it is wrong on screen or wrong on paper.** These have completely
-  different causes, and it is the first thing anyone will ask.
-- **Your printer make and model, and the driver.** Three separate bugs in this
-  project were printer-specific — landscape pages printing portrait, content
-  clipped at the edges, and folds landing off centre. A report without the
-  printer is often not actionable.
-- **The imposition settings**, or the preset name — signature size, sheet size,
-  margin, gutter, and which of the cover/endpaper/padding boxes were ticked.
-- **Your OS**, and whether you are running from source or a packaged build.
-- **The document's shape** — page count, page size, and whether every page is
-  the same size. Please don't send the PDF: manuscripts are usually private,
-  and nearly every bug here turns on counts and geometry rather than content.
-  If some document reproduces something those details don't explain, a minimal
-  PDF that shows the same problem is more useful than the original anyway.
+- **Wrong on screen, or wrong on paper?** Different causes entirely.
+- **Printer make, model, driver.** Three bugs here were printer-specific;
+  without it a report often isn't actionable.
+- **Imposition settings**, or the preset name.
+- **OS**, and source vs packaged build.
+- **The document's shape** — page count, page size, uniform or not. Please
+  don't send the PDF; manuscripts are private and the bugs are about geometry.
+  A minimal PDF that reproduces it beats the original anyway.
 
-## Commit messages
+## Commits
 
-[Conventional Commits](https://www.conventionalcommits.org/), because the
-version number and changelog are derived from them:
+[Conventional Commits](https://www.conventionalcommits.org/) — the version and
+changelog derive from them.
 
-```
-type(optional scope): short summary
+`feat` minor · `fix`/`perf` patch · `refactor`/`test`/`docs`/`style`/`build`/`ci`/`chore` none ·
+`feat!` or a `BREAKING CHANGE:` footer for breaking.
 
-Longer body explaining why, what broke, what you verified.
-```
-
-| Type | Use for | Version effect |
-|---|---|---|
-| `feat` | new capability | minor |
-| `fix` | bug fix | patch |
-| `perf` | faster, same behaviour | patch |
-| `refactor` | restructuring, no behaviour change | none |
-| `test`, `docs`, `style`, `build`, `ci`, `chore` | as named | none |
-
-A breaking change is `feat!:` or a `BREAKING CHANGE:` footer.
-
-**Only the subject line is constrained.** Bodies in this repo are long and
-specific on purpose — what was measured, what was ruled out, what the failure
-looked like. Keep writing those; the prefix just makes the subject
-machine-readable.
-
-The hook is bypassable with `--no-verify`, deliberately: it is a convenience,
-not a gate.
+**Only the subject is constrained.** Bodies here are long on purpose — what was
+measured, what was ruled out, what the failure looked like. Keep writing those.
+The hook is bypassable with `--no-verify`; it's a convenience, not a gate.
 
 ## Releasing
 
 ```bash
-uv run cz bump
-git push --follow-tags
+uv run cz bump && git push --follow-tags
 ```
 
-`cz bump` reads the commits since the last tag, works out the version bump,
-updates `pyproject.toml`, writes `CHANGELOG.md` and tags.
+Derives the bump from commits, updates the version, writes `CHANGELOG.md`,
+tags. Pre-1.0, so `major_version_zero` makes a breaking change bump the minor;
+drop it once the parameters and preset format settle.
 
-The project is pre-1.0, so `major_version_zero` is set: a breaking change bumps
-the minor rather than jumping to 1.0. Drop that once the imposition parameters
-and preset format are stable. Commits before `580efa6` predate this convention
-and are excluded from the changelog.
+## Worth working on
 
-## What is worth working on
+[README's Known gaps](README.md#known-gaps). The big one: Windows and macOS
+builds have never been run.
 
-[README's Known gaps](README.md#known-gaps) is the honest list. The largest is
-that **Windows and macOS builds have never been run** — the PyInstaller spec is
-written to be correct there but is unverified. CI on hosted runners is the
-intended fix, and would unblock most of the rest.
+## Licence
 
-## Licensing
-
-Bookwork is GPL v3-or-later. Contributions are accepted under the same terms.
-New source files need the licence header the existing ones carry — copy it from
-any file in `src/`.
-
-Note that PyMuPDF, which every build depends on, is AGPL v3; see
-[docs/third-party.md](docs/third-party.md) before adding dependencies, since
-licence compatibility is not automatic in a GPL project.
+GPL v3-or-later; contributions under the same. New files need the header the
+existing ones carry — copy it from any file in `src/`. Check
+[docs/third-party.md](docs/third-party.md) before adding a dependency;
+compatibility isn't automatic in a GPL project.
