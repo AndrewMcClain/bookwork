@@ -29,6 +29,7 @@ import pytest
 
 from bookwork.imposition import (
     ImpositionParams,
+    _fitted_content_rect,
     bound_reading_order,
     build_bound_preview,
     build_cover_order,
@@ -37,7 +38,6 @@ from bookwork.imposition import (
     compute_stats,
     impose,
 )
-from bookwork.imposition import _fitted_content_rect
 
 
 def test_signature_order_matches_psbook_s8_two_full_signatures():

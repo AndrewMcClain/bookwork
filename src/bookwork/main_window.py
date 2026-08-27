@@ -140,7 +140,7 @@ class MainWindow(QMainWindow):
     def open_pdf(self, path: str) -> None:
         try:
             document = PdfDocument(path)
-        except Exception as exc:  # fitz raises plain Exception/RuntimeError on bad files
+        except Exception as exc:  # noqa: BLE001 -- any bad file must surface as a dialog, not a crash
             QMessageBox.critical(self, "Failed to open PDF", f"Could not open:\n{path}\n\n{exc}")
             return
 

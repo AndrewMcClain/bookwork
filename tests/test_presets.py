@@ -26,6 +26,7 @@ settings store.
 from __future__ import annotations
 
 import dataclasses
+import pathlib
 import shutil
 
 from PySide6.QtCore import QSettings
@@ -149,10 +150,10 @@ def test_preset_saved_before_a_field_existed_still_loads(qtbot, tmp_path):
 
     fresh = _settings_read_fresh_from_disk(tmp_path)
     path = fresh.fileName()
-    kept = [line for line in open(path) if "pad_last_signature_to_full" not in line]
-    assert len(kept) < len(open(path).readlines())  # the key really was there to remove
-    with open(path, "w") as handle:
-        handle.writelines(kept)
+    original = pathlib.Path(path).read_text().splitlines(keepends=True)
+    kept = [line for line in original if "pad_last_signature_to_full" not in line]
+    assert len(kept) < len(original)  # the key really was there to remove
+    pathlib.Path(path).write_text("".join(kept))
 
     loaded = load_preset(QSettings(path, QSettings.Format.IniFormat), "Old")
 

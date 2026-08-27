@@ -16,6 +16,8 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import pytest
+
 from bookwork.pdf_document import PdfDocument
 
 
@@ -45,13 +47,8 @@ def test_render_thumbnail_is_smaller_than_full_page(make_pdf):
 
 def test_render_page_index_out_of_range_raises(make_pdf):
     path = make_pdf(num_pages=2)
-    with PdfDocument(path) as doc:
-        try:
-            doc.render_page(5)
-        except Exception:
-            pass
-        else:
-            raise AssertionError("expected an exception for an out-of-range page index")
+    with PdfDocument(path) as doc, pytest.raises(IndexError):
+        doc.render_page(5)
 
 
 def _page_texts(doc: PdfDocument) -> list[str]:

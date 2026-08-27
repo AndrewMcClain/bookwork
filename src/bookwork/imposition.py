@@ -271,7 +271,7 @@ class _SignatureLayout:
     separate_cover: bool
 
     @classmethod
-    def resolve(cls, params: ImpositionParams, source_page_count: int) -> "_SignatureLayout":
+    def resolve(cls, params: ImpositionParams, source_page_count: int) -> _SignatureLayout:
         if params.separate_cover:
             return cls.for_separate_cover(
                 source_page_count, params.signature_size_pages, params.pad_last_signature_to_full
@@ -289,7 +289,7 @@ class _SignatureLayout:
     @classmethod
     def for_separate_cover(
         cls, source_page_count: int, signature_size_pages: int, pad_last_signature_to_full: bool
-    ) -> "_SignatureLayout":
+    ) -> _SignatureLayout:
         """The `separate_cover` rule in one place: the first and last source
         pages become the cover folio, and the interior gets a leading and a
         trailing blank of its own (the inside-cover blanks) — reusing the

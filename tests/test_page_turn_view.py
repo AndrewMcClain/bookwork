@@ -27,6 +27,8 @@ exactly the way the Bound Preview tab exists to catch.
 
 from __future__ import annotations
 
+import itertools
+
 import pymupdf as fitz
 import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
@@ -648,7 +650,7 @@ def test_shadow_is_strongest_when_the_leaf_leans_over_the_page():
 def test_shadow_strength_is_continuous(qtbot):
     """No step anywhere across the turn — a jump would show as a flicker."""
     steps = [cast_shadow_strength(i / 200) for i in range(201)]
-    assert max(abs(b - a) for a, b in zip(steps, steps[1:])) < 0.05
+    assert max(abs(b - a) for a, b in itertools.pairwise(steps)) < 0.05
 
 
 # --- Drag to turn ---

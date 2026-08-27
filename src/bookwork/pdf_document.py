@@ -27,6 +27,7 @@ it composes pages rather than merely displaying them.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Self
 
 import pymupdf as fitz
 from PySide6.QtGui import QImage
@@ -49,7 +50,7 @@ class PdfDocument:
         self._adopt(fitz.open(Path(path)), Path(path))
 
     @classmethod
-    def from_fitz_document(cls, doc: fitz.Document, display_name: str) -> "PdfDocument":
+    def from_fitz_document(cls, doc: fitz.Document, display_name: str) -> PdfDocument:
         """Wrap an already-open, in-memory `fitz.Document` (e.g. imposition
         output) that has no path of its own on disk."""
         instance = cls.__new__(cls)
@@ -163,7 +164,7 @@ class PdfDocument:
     def close(self) -> None:
         self._doc.close()
 
-    def __enter__(self) -> "PdfDocument":
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc_info: object) -> None:
