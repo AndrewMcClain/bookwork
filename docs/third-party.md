@@ -1,58 +1,36 @@
 # Third-party licences
 
-Bookwork is GPL v3-or-later (see [`COPYING`](../COPYING)). Its dependencies
-are not all under the same terms, and one of them carries an obligation worth
-understanding before you redistribute a build.
+Bookwork is GPL v3-or-later ([COPYING](../COPYING)). Its dependencies are not.
 
-## Runtime dependencies — shipped in every binary
-
-| Package | Licence | Notes |
+| Package | Licence | Shipped? |
 |---|---|---|
-| [PyMuPDF](https://pymupdf.readthedocs.io/) | **AGPL v3**, or a commercial licence from Artifex | See below. |
-| [PySide6](https://doc.qt.io/qtforpython/) (with `shiboken6`) | LGPL v3 | Also available under commercial Qt terms. |
+| PyMuPDF | **AGPL v3**, or commercial from Artifex | yes |
+| PySide6 / shiboken6 | LGPL v3 | yes |
+| pytest, pytest-qt | MIT | no |
+| PyInstaller | GPL v2+, with a bundling exception | no |
 
-## PyMuPDF is AGPL, and that reaches the whole build
+## PyMuPDF being AGPL matters
 
-PyMuPDF is dual-licensed: AGPL v3, or a paid commercial licence from Artifex.
-Bookwork uses the AGPL side, which is compatible with GPL v3 — GPL v3 §13
-explicitly permits combining a GPL v3 work with an AGPL v3 one.
+It's compatible — GPL v3 §13 explicitly permits combining with AGPL v3 — but
+the AGPL's own §13 then applies to the combination. **Modify Bookwork and let
+people use it over a network, and you owe them source.** For a desktop tool
+that has nothing to bite on; it matters if you ever wrap this in a web service.
 
-What comes with that permission: **the AGPL's own §13 applies to the
-combination.** If you modify Bookwork and let people interact with it over a
-network, you have to offer those users the corresponding source. For a desktop
-tool that nobody notices — you run it locally, and the clause has nothing to
-bite on. It matters if you ever wrap this in a web service.
+To avoid the AGPL entirely you'd need a commercial PyMuPDF licence from
+Artifex. That's between you and them.
 
-If you need to avoid the AGPL entirely, the route is a commercial PyMuPDF
-licence from Artifex; that is a matter between you and them, not something
-Bookwork's own licence can grant.
+## The rest
 
-## PySide6 is LGPL
+**PySide6 (LGPL)** requires that recipients can swap in their own Qt build. A
+PyInstaller bundle ships Qt as separate shared objects, which is the usual way
+that's satisfied. If you distribute widely, check your bundle meets LGPL §4.
 
-LGPL v3 requires that recipients be able to replace the Qt libraries with their
-own build. A PyInstaller bundle ships Qt as separate shared objects rather than
-statically linked, which is the usual way this is satisfied in Python
-applications. If you distribute builds widely, satisfy yourself that your
-bundle meets LGPL §4 — for instance by also offering the object code or the
-unbundled application.
+**Dev-only tools** aren't in any binary, so their licences don't constrain
+Bookwork's — including PyInstaller's GPL, which carries an explicit exception
+for the applications it bundles.
 
-## Development-only dependencies — not shipped
-
-| Package | Licence |
-|---|---|
-| pytest | MIT |
-| pytest-qt | MIT |
-| PyInstaller | GPL v2-or-later, with an explicit exception permitting bundling of applications under any licence |
-
-These are build and test tooling. They are not present in a distributed
-binary, which is why their permissive terms place no constraint on Bookwork's
-own licence — and why PyInstaller's GPL does not force anything either, given
-its bundling exception.
-
-## Keeping this current
-
-Regenerate the picture with:
+## Checking
 
 ```bash
-uv run python -c "import importlib.metadata as m; [print(f\"{p}: {m.metadata(p).get('License-Expression') or m.metadata(p).get('License')}\") for p in ('pymupdf','pyside6','shiboken6','pytest','pytest-qt','pyinstaller')]"
+uv run python -c "import importlib.metadata as m; [print(p, m.metadata(p).get('License-Expression') or m.metadata(p).get('License')) for p in ('pymupdf','pyside6','pytest','pyinstaller')]"
 ```

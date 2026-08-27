@@ -1,20 +1,15 @@
-# Bookwork docs
+# Docs
 
-| Document | What is in it |
+| | |
 |---|---|
-| [design.md](design.md) | How the app is put together: stack, module map, the imposition pipeline, parameters, how it is tested. Start here. |
-| [decisions.md](decisions.md) | Choices that are not obvious from the code, and the failures that motivated them. Check here before changing something that looks odd. |
-| [third-party.md](third-party.md) | Dependency licences, and what PyMuPDF being AGPL means if you redistribute a build. |
-| [background.md](background.md) | The manual PostScript workflow Bookwork replaces, and where each of its rough edges went. Explains why the project exists. |
+| [design.md](design.md) | Stack, modules, pipeline, parameters, testing |
+| [decisions.md](decisions.md) | Non-obvious choices and the bugs behind them |
+| [background.md](background.md) | The manual process this replaces |
+| [third-party.md](third-party.md) | Dependency licences; PyMuPDF is AGPL |
 
-## Adding to these
+`decisions.md` is the one that earns its keep — check it before changing
+something that looks wrong. When you make a call a future reader would have to
+rediscover, add an entry: what, why, and what broke.
 
-`decisions.md` is the one that earns its keep. When you make a call that a
-future reader would otherwise have to rediscover — especially one motivated by
-a bug that was hard to find — add an entry saying what was decided, why, and
-what broke. Several entries there exist because the knowledge was only in a
-commit message and nearly got lost.
-
-Design documents that go stale are worse than none, because they are believed.
-If you change behaviour that `design.md` describes, change the description in
-the same commit.
+A stale design doc is worse than none, because it gets believed. Change
+behaviour, change the description in the same commit.
