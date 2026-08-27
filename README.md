@@ -67,9 +67,9 @@ deliberate choices look like bugs until you know why.
 
 ## Known gaps
 
-- **Windows and macOS are built and launch-tested in CI, but nobody has used
-  them.** The suite passes and the bundles start on all three platforms; no one
-  has clicked through the app on Windows or macOS.
+- **macOS is built and launch-tested in CI, but nobody has used it.** The
+  suite passes and the bundle starts on all three platforms; Linux and Windows
+  have both been driven by hand, macOS has not.
 - No app icon, code signing, or notarization.
 - Paper thickness is hardcoded at 0.1mm for the preview's edge stacks.
 - The thumbnail sidebar has stray blank space — cosmetic.

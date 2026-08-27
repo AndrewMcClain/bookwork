@@ -95,12 +95,24 @@ jobs:
         if: runner.os == 'Linux'
         run: bash packaging/scripts/build_deb.sh
 
+      # On macOS PyInstaller leaves both the onedir and the .app that wraps a
+      # copy of it, so uploading both doubled the artifact (413MB against
+      # 226MB for Linux) for no benefit. The .app is the thing you ship.
+      - name: Pick the bundle to upload
+        id: bundle
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            echo "path=packaging/dist/Bookwork.app" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=packaging/dist/bookwork" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/upload-artifact@v4
         with:
           name: bookwork-${{ matrix.os }}
           path: |
-            packaging/dist/bookwork/
-            packaging/dist/Bookwork.app/
+            ${{ steps.bundle.outputs.path }}
             packaging/dist/*.deb
           if-no-files-found: error
           # These are ~260MB each and only useful while the run is fresh.
