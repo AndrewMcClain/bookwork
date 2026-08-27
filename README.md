@@ -4,8 +4,9 @@ Impose a PDF for booklet printing: reorder pages into signatures, lay them out
 two-up with margins and a binding gutter, check the result as a bound book, and
 print it duplex. Cut, fold, bind — and the pages read in order.
 
-Replaces a manual tool chain that worked but was platform-specific and gave
-you no way to catch an off-by-one before it cost a print run.
+Replaces a manual tool chain that worked but was platform-specific, and that I
+kept making off-by-one errors with — never noticing until the sheets were
+already printed.
 
 **Status:** used for real printing on Linux. Windows and macOS builds are
 written but have never been run — see [Known gaps](#known-gaps).
