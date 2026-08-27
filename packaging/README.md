@@ -21,10 +21,9 @@ Output goes to `dist/` next to the spec (i.e. `packaging/dist/`):
 - **Linux**: `packaging/dist/bookwork/bookwork` — a onedir bundle; run the
   `bookwork` binary inside it. Built and smoke-tested here.
 - **Windows**: `packaging/dist/bookwork/bookwork.exe`, same onedir layout.
-  **Not yet built or tested** — needs to be run on an actual Windows
-  machine; the spec is written to be correct there but is unverified.
-- **macOS**: `packaging/dist/Bookwork.app`. **Not yet built or tested** —
-  needs an actual Mac; also unverified, and unsigned/unnotarized (Gatekeeper
+  Built and launch-tested in CI on every push; not yet driven by a human.
+- **macOS**: `packaging/dist/Bookwork.app`. Built and launch-tested in CI on
+  every push; not yet driven by a human, and unsigned/unnotarized (Gatekeeper
   will refuse to open it without at least right-click → Open, and won't be
   distributable outside your own machine without a Developer ID + notarization).
 
