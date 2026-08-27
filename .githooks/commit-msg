@@ -1,0 +1,10 @@
+#!/bin/sh
+# Validate the commit subject against Conventional Commits.
+#
+# Enable once per clone (hooks are not versioned by git itself):
+#   git config core.hooksPath .githooks
+#
+# Bypassable with `git commit --no-verify`, deliberately: a local hook is a
+# convenience, not a gate. If enforcement matters, add the same check to CI,
+# which is the only place it cannot be skipped.
+exec uv run cz check --commit-msg-file "$1"

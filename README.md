@@ -158,6 +158,13 @@ but has not been run there.
   stacks assume 0.1mm stock.
 - The thumbnail sidebar has some extra blank space in its layout — cosmetic.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). In short: `uv sync`, point git at the
+repo's hooks, run `ruff` and `pytest` before pushing, and use
+[Conventional Commits](https://www.conventionalcommits.org/) — the version and
+changelog are derived from them.
+
 ## License
 
 GPL v3 — see [COPYING](COPYING).
