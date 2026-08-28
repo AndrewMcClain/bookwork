@@ -22,7 +22,7 @@ imposition settings.
 
 from __future__ import annotations
 
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QDragEnterEvent, QDropEvent, QKeySequence
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import (
     QDialog,
@@ -47,6 +47,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Bookwork")
         self.resize(1100, 800)
+        self.setAcceptDrops(True)
 
         self._source_pane = PdfViewerPane()
         self._imposed_pane = PdfViewerPane()
@@ -136,6 +137,30 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Open PDF", filter="PDF files (*.pdf)")
         if path:
             self.open_pdf(path)
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        """Accept drags that carry at least one local `.pdf` file.
+
+        The extension check happens here so the cursor already shows the drop
+        is refused before the mouse is released, instead of accepting the drop
+        and then showing an error dialog.
+        """
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            if any(url.isLocalFile() and url.toLocalFile().lower().endswith(".pdf") for url in urls):
+                event.acceptProposedAction()
+                return
+        event.ignore()
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        """Open the first local `.pdf` from the drop; ignore everything else."""
+        urls = event.mimeData().urls()
+        for url in urls:
+            if url.isLocalFile() and url.toLocalFile().lower().endswith(".pdf"):
+                self.open_pdf(url.toLocalFile())
+                event.acceptProposedAction()
+                return
+        event.ignore()
 
     def open_pdf(self, path: str) -> None:
         try:
