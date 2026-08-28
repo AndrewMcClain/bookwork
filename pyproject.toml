@@ -1,6 +1,6 @@
 [project]
 name = "bookwork"
-version = "0.1.0"
+version = "0.2.0"
 description = "Cross-platform PDF imposition tool for booklet/signature printing"
 license = "GPL-3.0-or-later"
 license-files = ["COPYING"]
@@ -50,7 +50,7 @@ extend-select = ["N"]
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.1.0"
+version = "0.2.0"
 version_files = ["pyproject.toml:^version"]
 tag_format = "v$version"
 update_changelog_on_bump = true
