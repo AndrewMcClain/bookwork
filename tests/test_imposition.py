@@ -756,23 +756,28 @@ def test_right_to_left_is_exactly_the_mirror_of_the_default(make_pdf):
     position's parity, which none of those dimensions can change.
     """
     for page_count in (2, 5, 12):
-        src = fitz.open(make_pdf(num_pages=page_count))
-        for signature_size in (0, 8):
-            for cover, endpapers in ((False, False), (True, False), (False, True)):
-                shared = {
-                    "signature_size_pages": signature_size,
-                    "separate_cover": cover,
-                    "include_endpapers": endpapers,
-                }
-                left_bound = _sheet_cells(impose(src, ImpositionParams(**shared)))
-                right_bound = _sheet_cells(impose(src, ImpositionParams(**shared, right_to_left=True)))
+        # `make_pdf` reuses one path, so the handle from the previous round
+        # has to be closed before the next write. Windows refuses to
+        # overwrite a file that is still open; Linux and macOS allow it, so
+        # leaking the handle here fails on one platform only.
+        with fitz.open(make_pdf(num_pages=page_count)) as src:
+            for signature_size in (0, 8):
+                for cover, endpapers in ((False, False), (True, False), (False, True)):
+                    shared = {
+                        "signature_size_pages": signature_size,
+                        "separate_cover": cover,
+                        "include_endpapers": endpapers,
+                    }
+                    left = _sheet_cells(impose(src, ImpositionParams(**shared)))
+                    right = _sheet_cells(impose(src, ImpositionParams(**shared, right_to_left=True)))
 
-                assert right_bound == [(right, left) for left, right in left_bound], (
-                    f"{page_count} pages, signature {signature_size}, cover={cover}, endpapers={endpapers}"
-                )
+                    assert right == [(b, a) for a, b in left], (
+                        f"{page_count} pages, signature {signature_size}, "
+                        f"cover={cover}, endpapers={endpapers}"
+                    )
 
 
-def test_right_to_left_changes_no_counts(make_pdf):
+def test_right_to_left_changes_no_counts():
     """Reading direction is about how you hold the folded sheet, not how it
     folds -- so it must not move a single page onto a different sheet."""
     for page_count in (2, 5, 12, 21):
