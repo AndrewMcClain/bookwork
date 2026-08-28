@@ -68,6 +68,12 @@ class PdfViewerPane(QWidget):
 
         self.thumbnail_list.page_selected.connect(self.show_page)
 
+    def set_reading_direction(self, right_to_left: bool) -> None:
+        """Mirror the page display, for panes that animate turns. A no-op on
+        the flat panes, which show sheets rather than a bound book."""
+        if isinstance(self.page_view, PageTurnView):
+            self.page_view.set_reading_direction(right_to_left)
+
     def load_document(self, document: PdfDocument) -> None:
         if self.document is not None:
             self.document.close()

@@ -180,6 +180,8 @@ class MainWindow(QMainWindow):
 
         self._imposed_pane.load_document(PdfDocument.from_fitz_document(imposed_doc, "imposed.pdf"))
 
+        # Before loading, so the first paint is already the right way round.
+        self._bound_preview_pane.set_reading_direction(params.right_to_left)
         bound_doc = build_bound_preview(imposed_doc, source_doc.page_count, params)
         self._bound_preview_pane.load_document(PdfDocument.from_fitz_document(bound_doc, "bound-preview.pdf"))
 

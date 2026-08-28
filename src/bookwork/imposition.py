@@ -98,6 +98,16 @@ class ImpositionParams:
     #: `signature_size_pages` is 0 (a single signature already only pads to
     #: a multiple of 4). See `_chunk_sizes`.
     pad_last_signature_to_full: bool = False
+    #: Bind on the right and read right to left, the way Japanese comics and
+    #: most Hebrew/Arabic books are bound, instead of the left-bound default.
+    #:
+    #: Purely a mirror: the signature/booklet maths is identical, because
+    #: which way round a folded sheet reads is a fact about how you hold it,
+    #: not about how it folds. Every page pair that shares a sheet side still
+    #: shares it — the two cells simply swap, so the page that was against
+    #: the spine on the left is now against it on the right. See
+    #: `_cell_sides`, the one place that mapping lives.
+    right_to_left: bool = False
 
     def __post_init__(self) -> None:
         if self.signature_size_pages < 0:
@@ -242,6 +252,21 @@ def build_cover_order(first_index: int, last_index: int) -> list[int | None]:
 _COVER_SHEET_SIDES = 2
 
 
+def _cell_sides(right_to_left: bool) -> tuple[str, str]:
+    """The sheet-side cells the two halves of each physical pair land in,
+    in physical order — so `order[0]` goes in the first named cell and
+    `order[1]` in the second.
+
+    This is the entire physical meaning of `ImpositionParams.right_to_left`,
+    and the only place it is written down. `_build_sheets` uses it to place
+    the pages and `_SignatureLayout.reading_order` to find them again when
+    rebuilding the bound preview; if those two ever disagreed, the preview
+    would show a book that isn't the one being printed — precisely the
+    failure that tab exists to catch.
+    """
+    return ("right", "left") if right_to_left else ("left", "right")
+
+
 @dataclass(frozen=True)
 class _SignatureLayout:
     """`ImpositionParams` resolved against a source page count into the
@@ -267,12 +292,24 @@ class _SignatureLayout:
     #: First/last source page form a wrap cover folio, prepended to the
     #: interior's own signature(s). See `build_cover_order`.
     separate_cover: bool
+    #: Bind on the right; see `ImpositionParams.right_to_left`. Deliberately
+    #: without a default: every construction site knows the binding, and a
+    #: silent fallback to left-bound is the mistake worth ruling out.
+    right_to_left: bool
+
+    def _cell_side(self, physical_position: int) -> str:
+        """Which cell of a sheet side the page at `physical_position` in
+        `physical_order` is placed in. See `_cell_sides`."""
+        return _cell_sides(self.right_to_left)[physical_position % 2]
 
     @classmethod
     def resolve(cls, params: ImpositionParams, source_page_count: int) -> _SignatureLayout:
         if params.separate_cover:
             return cls.for_separate_cover(
-                source_page_count, params.signature_size_pages, params.pad_last_signature_to_full
+                source_page_count,
+                params.signature_size_pages,
+                params.pad_last_signature_to_full,
+                right_to_left=params.right_to_left,
             )
         endpaper_count = 1 if params.include_endpapers else 0
         return cls(
@@ -282,11 +319,17 @@ class _SignatureLayout:
             trailing_blanks=endpaper_count,
             pad_last_signature_to_full=params.pad_last_signature_to_full,
             separate_cover=False,
+            right_to_left=params.right_to_left,
         )
 
     @classmethod
     def for_separate_cover(
-        cls, source_page_count: int, signature_size_pages: int, pad_last_signature_to_full: bool
+        cls,
+        source_page_count: int,
+        signature_size_pages: int,
+        pad_last_signature_to_full: bool,
+        *,
+        right_to_left: bool,
     ) -> _SignatureLayout:
         """The `separate_cover` rule in one place: the first and last source
         pages become the cover folio, and the interior gets a leading and a
@@ -303,6 +346,7 @@ class _SignatureLayout:
             trailing_blanks=1,
             pad_last_signature_to_full=pad_last_signature_to_full,
             separate_cover=True,
+            right_to_left=right_to_left,
         )
 
     def chunk_sizes(self) -> list[int]:
@@ -343,7 +387,7 @@ class _SignatureLayout:
         for physical_position, source_index in enumerate(order):
             if source_index is not None:
                 reading_position = self.leading_blanks + source_index
-                side = "left" if physical_position % 2 == 0 else "right"
+                side = self._cell_side(physical_position)
                 interior_mapping[reading_position] = (physical_position // 2, side)
 
         if not self.separate_cover:
@@ -352,8 +396,10 @@ class _SignatureLayout:
         # Interior sheets follow the cover folio in the combined imposed
         # document, so their sheet indices shift past it.
         result: list[tuple[int, str] | None] = [None] * (len(interior_mapping) + 2)
-        result[0] = (0, "right")  # cover front: build_cover_order puts it at physical position 1
-        result[-1] = (0, "left")  # cover back: physical position 0
+        # build_cover_order puts the front cover at physical position 1 and
+        # the back cover at position 0; which cell that is depends on binding.
+        result[0] = (0, self._cell_side(1))
+        result[-1] = (0, self._cell_side(0))
         for local_index, entry in enumerate(interior_mapping):
             if entry is not None:
                 sheet_index, side = entry
@@ -377,13 +423,22 @@ def impose(src: fitz.Document, params: ImpositionParams | None = None) -> fitz.D
 def _build_sheets(src: fitz.Document, order: list[int | None], params: ImpositionParams) -> fitz.Document:
     """Place `order` (physical position -> source page index or blank) onto
     2-up sheet sides, margin/gutter/crop-marks applied — the shared final
-    step for both the normal and `separate_cover` imposition paths."""
+    step for both the normal and `separate_cover` imposition paths.
+
+    Right-to-left binding mirrors each sheet side: the same two pages still
+    share it, they just swap cells. The gutter needs no special case, because
+    the spine is still the sheet's vertical centerline and each cell is still
+    inset away from it.
+    """
     out = fitz.open()
     cell_width = params.sheet_width_pt / 2
+    # Placing by cell *name* rather than by position keeps this and
+    # `reading_order` on the one definition of where a page goes.
+    sides = _cell_sides(params.right_to_left)
 
     for i in range(0, len(order), 2):
-        left_index = order[i]
-        right_index = order[i + 1]
+        cells = dict(zip(sides, order[i : i + 2], strict=True))
+        left_index, right_index = cells["left"], cells["right"]
         page = out.new_page(width=params.sheet_width_pt, height=params.sheet_height_pt)
         left_cell = fitz.Rect(0, 0, cell_width, params.sheet_height_pt)
         right_cell = fitz.Rect(cell_width, 0, params.sheet_width_pt, params.sheet_height_pt)
@@ -499,6 +554,7 @@ def bound_reading_order(
     trailing_blanks: int = 0,
     separate_cover: bool = False,
     pad_last_signature_to_full: bool = False,
+    right_to_left: bool = False,
 ) -> list[tuple[int, str] | None]:
     """Return, for every reading-order slot (0-based — slot 0 is the first
     `leading_blanks` blank page(s), then real page 1, 2, ..., then
@@ -519,10 +575,15 @@ def bound_reading_order(
     and ends with a blank — the inside-cover blanks), then cover back alone
     — see `_SignatureLayout.for_separate_cover` and
     `ImpositionParams.separate_cover`.
+
+    `right_to_left=True` mirrors the returned cells (a slot that was in the
+    left cell is now in the right one); the slot ordering itself is
+    unchanged, since reading direction doesn't alter which sheet a page
+    lands on.
     """
     if separate_cover:
         layout = _SignatureLayout.for_separate_cover(
-            page_count, signature_size_pages, pad_last_signature_to_full
+            page_count, signature_size_pages, pad_last_signature_to_full, right_to_left=right_to_left
         )
     else:
         layout = _SignatureLayout(
@@ -532,6 +593,7 @@ def bound_reading_order(
             trailing_blanks=trailing_blanks,
             pad_last_signature_to_full=pad_last_signature_to_full,
             separate_cover=False,
+            right_to_left=right_to_left,
         )
     return layout.reading_order()
 
@@ -597,7 +659,9 @@ def build_bound_preview(
             page = out.new_page(width=cell_width, height=cell_height)
             _copy_cell(page, imposed, mapping[view[0]], fitz.Rect(0, 0, cell_width, cell_height), cell_width)
         else:
-            left_index, right_index = view
+            # A spread's two slots are consecutive in reading order. Reading
+            # right to left puts the earlier of them on the right.
+            left_index, right_index = reversed(view) if params.right_to_left else view
             page = out.new_page(width=cell_width * 2, height=cell_height)
             _copy_cell(
                 page, imposed, mapping[left_index], fitz.Rect(0, 0, cell_width, cell_height), cell_width

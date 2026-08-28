@@ -35,6 +35,27 @@ putting half of every arm *on the page* — trimming along the mark left ink on
 the finished page. Both arms now point outward, meeting the content at one
 point.
 
+### Right-to-left binding is a mirror, not a reordering
+
+`right_to_left` changes no page's signature, sheet or neighbour — only which
+cell of the sheet side it lands in. Which way round a folded sheet reads is a
+fact about how you hold it, not how it folds, so the saddle-stitch maths is
+untouched and `compute_stats` returns identical numbers either way.
+
+`_cell_sides` is the single definition of that mapping. `_build_sheets` places
+each pair by cell *name* rather than by position, and `reading_order` uses the
+same function to find them again for the preview. Naming the cells is what
+makes the sharing real: an earlier draft had `_build_sheets` swapping the pair
+itself and only *citing* `_cell_sides` in a comment, which is the same
+duplication with a note claiming otherwise. If the two disagreed, the Bound
+Preview would show a book that isn't the one being printed — the exact failure
+that tab exists to catch.
+
+The test asserts the mirror property across every combination of signature
+size, endpapers and wrap cover rather than hand-writing each expected layout.
+Those paths reach the cell mapping by different routes, and a hand-derived
+expectation for each is the easiest place to get one of them wrong.
+
 ## Printing
 
 ### `setFullPage(True)` is never used
@@ -130,6 +151,20 @@ The projection pinned the page image's top-left to the spine regardless of
 face. A recto is bound along its left edge; the verso on the back of that same
 sheet along its *right*. Getting it wrong drew the verso mirrored for the whole
 second half of every turn, then snapped it upright when the turn ended.
+
+### A mirrored turn reverses two things, not one
+
+Right-to-left binding flips which face of the leaf is read backwards
+(`leaf_source_x`) *and* which direction the leaf sweeps (`leaf_curve`'s
+`direction`). The first composes with the recto/verso reversal above as an
+XOR: a right-bound leaf's front is bound along its right edge, so it is the
+face read backwards and the back face is read forwards. Applying both
+reversals mirrors the text on every face; applying neither mirrors it on
+exactly one. Both look like the bug that reversal was added to fix.
+
+Everything else about the turn is genuinely mirror-symmetric — the curl, the
+foreshortening, the moment it goes edge-on — which is why `direction` only
+ever multiplies the horizontal term.
 
 ### Edge stacks are drawn at real paper thickness
 

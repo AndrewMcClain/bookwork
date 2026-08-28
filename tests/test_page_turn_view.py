@@ -449,15 +449,25 @@ def lopsided_bound_preview(tmp_path):
     changes the pixels and a flip is undetectable. Anything checking
     orientation needs content that plainly has a left and a right.
     """
+    return _lopsided_preview(tmp_path, right_to_left=False)
+
+
+@pytest.fixture
+def lopsided_rtl_bound_preview(tmp_path):
+    """`lopsided_bound_preview`, bound on the right."""
+    return _lopsided_preview(tmp_path, right_to_left=True)
+
+
+def _lopsided_preview(tmp_path, *, right_to_left):
     document = fitz.open()
     for index in range(8):
         page = document.new_page(width=612, height=792)
         page.draw_rect(fitz.Rect(40, 40, 260, 750), color=None, fill=(0.15, 0.2, 0.55))
         page.insert_text((300, 400), f"{index + 1}", fontsize=180)
-    path = tmp_path / "lopsided.pdf"
+    path = tmp_path / f"lopsided-{'rtl' if right_to_left else 'ltr'}.pdf"
     document.save(path)
 
-    params = ImpositionParams(signature_size_pages=8)
+    params = ImpositionParams(signature_size_pages=8, right_to_left=right_to_left)
     source = PdfDocument(path)
     imposed = impose(source.fitz_document, params)
     return PdfDocument.from_fitz_document(build_bound_preview(imposed, 8, params), "lopsided-bp.pdf")
@@ -848,3 +858,249 @@ def test_dragging_all_the_way_over_finishes_on_the_spot(qtbot, bound_preview):
     assert released_at == pytest.approx(1.0)
     assert view._turn is None
     assert steps == [1]
+
+
+# --- Right-to-left binding ---
+
+
+def _mirrored_curve(progress, strips=LEAF_STRIP_COUNT):
+    return leaf_curve(progress, PAGE_W, PAGE_H, SPINE_X, TOP_Y, strips, direction=-1)
+
+
+def test_mirrored_leaf_starts_on_the_left_and_ends_on_the_right():
+    start, end = _mirrored_curve(0.0), _mirrored_curve(1.0)
+
+    assert _xs(start)[0] == pytest.approx(SPINE_X)
+    assert _xs(start)[-1] == pytest.approx(SPINE_X - PAGE_W)
+    assert max(_xs(end)) == pytest.approx(SPINE_X + PAGE_W)
+    assert min(_xs(end)) == pytest.approx(SPINE_X)
+
+
+@pytest.mark.parametrize("progress", [0.0, 0.2, 0.5, 0.8, 1.0])
+def test_mirrored_leaf_is_the_reflection_of_the_default(progress):
+    """A right-bound turn is the same motion in a mirror -- so the curl, the
+    foreshortening and the moment it goes edge-on must be untouched, and only
+    the horizontal positions reflected about the spine."""
+    normal, mirrored = _curve(progress), _mirrored_curve(progress)
+
+    assert mirrored.showing_back == normal.showing_back
+    for plain, flipped in zip(normal.samples, mirrored.samples):
+        assert flipped.x - SPINE_X == pytest.approx(-(plain.x - SPINE_X))
+        assert flipped.inset == pytest.approx(plain.inset)
+        assert flipped.depth == pytest.approx(plain.depth)
+
+
+@pytest.mark.parametrize("showing_back", [False, True])
+def test_right_to_left_reverses_which_face_is_read_backwards(showing_back):
+    """The two reversals compose rather than stack: a right-bound leaf's
+    front is bound along its right edge, so it is the one read backwards and
+    the back face is read forwards. Applying both would mirror the text on
+    every face, applying neither on exactly one -- both the same visible bug,
+    which is why the condition is an XOR and worth pinning."""
+    spine = leaf_source_x(0.0, 100.0, showing_back, right_to_left=True)
+    fore_edge = leaf_source_x(1.0, 100.0, showing_back, right_to_left=True)
+
+    assert spine == pytest.approx(leaf_source_x(1.0, 100.0, showing_back))
+    assert fore_edge == pytest.approx(leaf_source_x(0.0, 100.0, showing_back))
+
+
+@pytest.fixture
+def rtl_bound_preview(make_pdf):
+    """The same book as `bound_preview`, bound on the right."""
+    path = make_pdf(num_pages=12)
+    params = ImpositionParams(signature_size_pages=12, right_to_left=True)
+    source = PdfDocument(path)
+    imposed = impose(source.fitz_document, params)
+    return PdfDocument.from_fitz_document(build_bound_preview(imposed, 12, params), "bp-rtl.pdf")
+
+
+def _rtl_view(qtbot, duration_ms=200):
+    view = _view(qtbot, duration_ms)
+    view.set_reading_direction(True)
+    return view
+
+
+def test_right_bound_cover_sits_to_the_left_of_the_spine(qtbot, rtl_bound_preview):
+    """A closed right-bound book has its spine on the right, so the cover
+    occupies the space to its left -- the opposite of the default."""
+    view = _rtl_view(qtbot)
+    view.display(rtl_bound_preview, 0)
+
+    left, right = view._halves(0)
+
+    assert left is not None
+    assert right is None
+
+
+def test_right_bound_trailing_lone_view_sits_to_the_right(qtbot, rtl_bound_preview):
+    view = _rtl_view(qtbot)
+    last = rtl_bound_preview.page_count - 1
+    view.display(rtl_bound_preview, last)
+
+    left, right = view._halves(last)
+
+    assert left is None
+    assert right is not None
+
+
+def test_right_bound_leaf_lifts_off_the_left_and_lands_on_the_right(qtbot, rtl_bound_preview):
+    """The leaf is still the sheet between the two views -- it just picks up
+    its faces from the opposite halves."""
+    view = _rtl_view(qtbot)
+    view.display(rtl_bound_preview, 1)
+    expected_front = view._halves(1)[0]
+    expected_back = view._halves(2)[1]
+
+    view.display(rtl_bound_preview, 2, previous_index=1)
+
+    assert _image_bytes(view._turn.leaf_front) == _image_bytes(expected_front)
+    assert _image_bytes(view._turn.leaf_back) == _image_bytes(expected_back)
+    assert _image_bytes(view._turn.right_static) == _image_bytes(view._halves(1)[1])
+    assert _image_bytes(view._turn.left_static) == _image_bytes(view._halves(2)[0])
+
+
+def test_right_bound_stacks_pile_up_on_the_other_side(qtbot, rtl_bound_preview):
+    """The leaves you have turned end up under your right hand, so the thick
+    stack is the right one -- reading how far through the book you are off
+    the wrong side would be worse than showing no stack at all."""
+    view = _rtl_view(qtbot, duration_ms=0)
+    # Deliberately off-centre. At the midpoint the two counts are equal and
+    # swapping them is undetectable, so this would pass unmirrored.
+    turned = 5
+    total_leaves = rtl_bound_preview.page_count - 1
+    assert turned * 2 != total_leaves, "pick an index where the two stacks differ"
+    view.display(rtl_bound_preview, turned)
+
+    left, right = view.leaf_counts()
+
+    assert right == turned
+    assert left == total_leaves - turned
+
+
+def test_right_bound_clicks_and_arrow_keys_swap_over(qtbot, rtl_bound_preview):
+    """Clicking the page you would physically take hold of has to advance
+    the book, and that page has changed sides."""
+    view = _rtl_view(qtbot, duration_ms=0)
+    view.display(rtl_bound_preview, 1)
+    steps = []
+    view.step_requested.connect(steps.append)
+
+    qtbot.mouseClick(view, Qt.MouseButton.LeftButton, pos=QPoint(view.width() // 4, view.height() // 2))
+    view.display(rtl_bound_preview, 1)
+    qtbot.mouseClick(view, Qt.MouseButton.LeftButton, pos=QPoint(view.width() * 3 // 4, view.height() // 2))
+    qtbot.keyClick(view, Qt.Key.Key_Left)
+    qtbot.keyClick(view, Qt.Key.Key_Right)
+
+    assert steps == [1, -1, 1, -1]
+
+
+def test_right_bound_drag_follows_the_pointer_the_other_way(qtbot, rtl_bound_preview):
+    """The fore edge has to stay under the finger. Dragging leftward in a
+    right-bound book pulls the leaf *away* from where it settles, so a
+    progress that rose here would mean the page was running off ahead of the
+    hand."""
+    view = _rtl_view(qtbot, duration_ms=0)
+    view.display(rtl_bound_preview, 1)
+    page_w, _, _ = book_layout(view.width(), view.height(), view._spread_width_pt / 2, view._page_height_pt)
+    spine = view.width() / 2
+
+    at_rest = view._progress_at(spine - page_w)  # fore edge fully to the left
+    at_spine = view._progress_at(spine)
+    fully_over = view._progress_at(spine + page_w)
+
+    assert at_rest == pytest.approx(0.0)
+    assert at_spine == pytest.approx(0.5)
+    assert fully_over == pytest.approx(1.0)
+
+
+def test_setting_the_direction_back_and_forth_leaves_no_stale_leaf(qtbot, rtl_bound_preview):
+    """The document is rebuilt whenever the toggle changes, but a turn left
+    in flight would be holding half-pages cropped the old way round."""
+    view = _rtl_view(qtbot, duration_ms=200)
+    view.display(rtl_bound_preview, 1)
+    view.display(rtl_bound_preview, 2, previous_index=1)
+    assert view._turn is not None
+
+    view.set_reading_direction(False)
+
+    assert view._turn is None
+    assert view._backdrop is None
+
+
+def test_painting_a_right_bound_turn_does_not_raise(qtbot, rtl_bound_preview):
+    view = _rtl_view(qtbot, duration_ms=200)
+    view.display(rtl_bound_preview, 1)
+    view.display(rtl_bound_preview, 2, previous_index=1)
+    view.turn_progress = 0.5
+
+    view.grab()  # paints through the mirrored leaf, shadow and strip transforms
+
+
+def test_right_bound_drag_from_the_left_turns_the_page_forwards(qtbot, rtl_bound_preview):
+    """End to end through the real event path: take hold of the left page,
+    pull it across the spine, let go past halfway."""
+    view = _rtl_view(qtbot, duration_ms=0)
+    view.display(rtl_bound_preview, 1)
+    steps = []
+    view.step_requested.connect(steps.append)
+
+    released_at = _drag(view, 0.20, 0.85)
+
+    assert released_at > 0.5
+    assert steps == [1]
+
+
+def test_right_bound_drag_letting_go_early_puts_the_page_back(qtbot, rtl_bound_preview):
+    view = _rtl_view(qtbot, duration_ms=0)
+    view.display(rtl_bound_preview, 1)
+    steps = []
+    view.step_requested.connect(steps.append)
+
+    released_at = _drag(view, 0.20, 0.38)
+
+    assert released_at < 0.5
+    assert steps == []
+
+
+def test_right_bound_turn_lands_without_a_snap(qtbot, lopsided_rtl_bound_preview):
+    """The pixel check that a mirrored face would fail.
+
+    At full progress the leaf covers the page slot it settles into, so the
+    last animated frame has to look like the static view that replaces it.
+    Reverse the wrong face and the leaf shows the page back to front right up
+    until the animation ends, then flips upright — which is what this same
+    check caught for left-bound books. It needs deliberately lopsided pages:
+    the stock test PDFs are nearly symmetric, so a flip barely moves a pixel.
+    """
+    view = _rtl_view(qtbot)
+    view.display(lopsided_rtl_bound_preview, 1)
+    view.display(lopsided_rtl_bound_preview, 2, previous_index=1)
+    view._animation.stop()
+
+    view.turn_progress = 1.0
+    last_frame = QPixmap(view.size())
+    view.render(last_frame)
+
+    view._on_turn_finished()
+    settled = QPixmap(view.size())
+    view.render(settled)
+
+    assert _fraction_differing(last_frame.toImage(), settled.toImage()) < 0.02
+
+
+def test_right_bound_turn_starts_without_a_snap(qtbot, lopsided_rtl_bound_preview):
+    """The other end, which is the one the front face governs: at zero
+    progress the leaf lies flat where it started, so the first frame has to
+    match the view it left."""
+    view = _rtl_view(qtbot)
+    view.display(lopsided_rtl_bound_preview, 1)
+    before = QPixmap(view.size())
+    view.render(before)
+
+    view.display(lopsided_rtl_bound_preview, 2, previous_index=1)
+    view._animation.stop()
+    view.turn_progress = 0.0
+    first_frame = QPixmap(view.size())
+    view.render(first_frame)
+
+    assert _fraction_differing(before.toImage(), first_frame.toImage()) < 0.02

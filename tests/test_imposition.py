@@ -716,3 +716,108 @@ def test_compute_stats_separate_cover_minimized_by_default(make_pdf):
     assert stats.blank_pages_added == 4  # interior padded total 12 vs. interior_count 8
     assert stats.sheet_side_count == 8
     assert stats.physical_sheet_count == 4
+
+
+# --- Right-to-left binding ---
+
+
+def _sheet_cells(doc: fitz.Document) -> list[tuple[str, str]]:
+    """The text in each sheet side's left and right cell, `"-"` for blank."""
+    cells = []
+    for page in doc:
+        middle = page.rect.width / 2
+        left = fitz.Rect(0, 0, middle, page.rect.height)
+        right = fitz.Rect(middle, 0, page.rect.width, page.rect.height)
+        cells.append((page.get_text(clip=left).strip() or "-", page.get_text(clip=right).strip() or "-"))
+    return cells
+
+
+def test_right_to_left_puts_the_front_cover_on_the_left_of_the_outer_sheet(make_pdf):
+    """The one case worth pinning by hand. A left-bound folio's outside
+    spread is (back cover, front cover); binding on the right mirrors it, so
+    page 1 lands in the left cell with page 4 beside it."""
+    src = fitz.open(make_pdf(num_pages=4))
+    params = ImpositionParams(signature_size_pages=4, right_to_left=True)
+
+    assert _sheet_cells(impose(src, params)) == [("Page 1", "Page 4"), ("Page 3", "Page 2")]
+
+
+def test_right_to_left_is_exactly_the_mirror_of_the_default(make_pdf):
+    """The whole feature in one property: same sheets, same pairs, cells
+    swapped. Asserting the mirror rather than each layout separately is what
+    makes this hold for endpapers and wrap covers too -- those paths reach
+    the cell mapping by different routes, and a hand-written expectation for
+    each would be the easiest place to get one of them wrong.
+
+    The page counts cover an exact fit, an odd count needing padding, and one
+    spilling into a second signature; the signature sizes cover the
+    single-signature special case and real chunking. Widening either axis
+    costs seconds and catches nothing more -- the cell mapping keys off a
+    position's parity, which none of those dimensions can change.
+    """
+    for page_count in (2, 5, 12):
+        src = fitz.open(make_pdf(num_pages=page_count))
+        for signature_size in (0, 8):
+            for cover, endpapers in ((False, False), (True, False), (False, True)):
+                shared = {
+                    "signature_size_pages": signature_size,
+                    "separate_cover": cover,
+                    "include_endpapers": endpapers,
+                }
+                left_bound = _sheet_cells(impose(src, ImpositionParams(**shared)))
+                right_bound = _sheet_cells(impose(src, ImpositionParams(**shared, right_to_left=True)))
+
+                assert right_bound == [(right, left) for left, right in left_bound], (
+                    f"{page_count} pages, signature {signature_size}, cover={cover}, endpapers={endpapers}"
+                )
+
+
+def test_right_to_left_changes_no_counts(make_pdf):
+    """Reading direction is about how you hold the folded sheet, not how it
+    folds -- so it must not move a single page onto a different sheet."""
+    for page_count in (2, 5, 12, 21):
+        for signature_size in (0, 4, 20):
+            shared = {"signature_size_pages": signature_size}
+            left_bound = compute_stats(page_count, ImpositionParams(**shared))
+            right_bound = compute_stats(page_count, ImpositionParams(**shared, right_to_left=True))
+            assert left_bound == right_bound
+
+
+def test_bound_reading_order_mirrors_the_cells():
+    left_bound = bound_reading_order(8, 8)
+    right_bound = bound_reading_order(8, 8, right_to_left=True)
+
+    flipped = [None if e is None else (e[0], "left" if e[1] == "right" else "right") for e in left_bound]
+    assert right_bound == flipped
+
+
+def test_right_to_left_spread_puts_the_earlier_page_on_the_right(make_pdf):
+    """Reading right to left, page 2 is the one your eye reaches first, so
+    it sits on the right of the spread and page 3 to its left."""
+    src = fitz.open(make_pdf(num_pages=8))
+    params = ImpositionParams(signature_size_pages=8, right_to_left=True)
+    preview = build_bound_preview(impose(src, params), 8, params)
+
+    # View 0 is the lone cover; view 1 is the first real spread.
+    assert _sheet_cells(preview)[1] == ("Page 3", "Page 2")
+
+
+def test_bound_preview_mirrors_spreads_but_not_lone_covers(make_pdf):
+    """A lone cover is a half-width page with nothing beside it, so there is
+    nothing to mirror -- which side of the spine it is drawn on is the
+    display's business (see `PageTurnView._halves`), not the document's."""
+    src = fitz.open(make_pdf(num_pages=12))
+    shared = {"signature_size_pages": 12}
+    left_params = ImpositionParams(**shared)
+    right_params = ImpositionParams(**shared, right_to_left=True)
+    left_preview = build_bound_preview(impose(src, left_params), 12, left_params)
+    right_preview = build_bound_preview(impose(src, right_params), 12, right_params)
+
+    assert right_preview.page_count == left_preview.page_count
+    for index, (left_cells, right_cells) in enumerate(
+        zip(_sheet_cells(left_preview), _sheet_cells(right_preview))
+    ):
+        is_spread = left_preview[index].rect.width > left_params.sheet_width_pt * 0.75
+        assert (right_preview[index].rect.width > left_params.sheet_width_pt * 0.75) == is_spread
+        expected = (left_cells[1], left_cells[0]) if is_spread else left_cells
+        assert right_cells == expected

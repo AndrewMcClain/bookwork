@@ -718,3 +718,46 @@ def test_loading_an_unusual_size_says_custom(qtbot):
     panel._set_fields(ImpositionParams(sheet_width_pt=700.0, sheet_height_pt=500.0))
 
     assert panel._paper_size.currentText() == "(Custom)"
+
+
+def test_reading_direction_checkbox_reaches_the_imposition(qtbot, make_pdf):
+    path = make_pdf(num_pages=4)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._imposition_panel._signature_size.setValue(4)
+    window.open_pdf(str(path))
+    boundary = window._current_imposition_params.sheet_width_pt / 2
+
+    window._imposition_panel._right_to_left.setChecked(True)
+    window._imposition_panel.try_emit_params()
+
+    assert window._current_imposition_params.right_to_left is True
+    # Page 1 moves from the right cell of the outer sheet to the left.
+    outer = window._imposed_pane.document.fitz_document[0]
+    assert outer.search_for("Page 1")[0].x1 <= boundary
+
+
+def test_reading_direction_reaches_the_bound_preview_display(qtbot, make_pdf):
+    """The preview document and the widget drawing it have to agree; a
+    mirrored book paged through the unmirrored way would turn its leaves
+    off the wrong edge."""
+    path = make_pdf(num_pages=8)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_pdf(str(path))
+    assert window._bound_preview_pane.page_view._right_to_left is False
+
+    window._imposition_panel._right_to_left.setChecked(True)
+    window._imposition_panel.try_emit_params()
+
+    assert window._bound_preview_pane.page_view._right_to_left is True
+
+
+def test_reading_direction_defaults_to_left_to_right(qtbot):
+    from bookwork.widgets.imposition_panel import ImpositionPanel
+
+    panel = ImpositionPanel()
+    qtbot.addWidget(panel)
+
+    assert not panel._right_to_left.isChecked()
+    assert panel.current_params().right_to_left is False

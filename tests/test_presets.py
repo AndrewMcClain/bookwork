@@ -69,6 +69,7 @@ _NON_DEFAULT_PARAMS = ImpositionParams(
     include_endpapers=True,
     separate_cover=False,
     pad_last_signature_to_full=True,
+    right_to_left=True,
 )
 
 

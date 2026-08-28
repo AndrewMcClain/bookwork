@@ -188,9 +188,16 @@ def leaf_curve(
     spine_x: float,
     top_y: float,
     strips: int = LEAF_STRIP_COUNT,
+    direction: int = 1,
 ) -> LeafCurve:
     """Sample the turning leaf across its width at `progress` (0 = lying on
-    the right, 1 = lying on the left).
+    the fore-edge side the leaf starts from, 1 = lying on the other).
+
+    `direction` is +1 for a left-bound book, where the leaf starts on the
+    right and sweeps left, and -1 for a right-bound one, where it does the
+    opposite. It only ever multiplies the horizontal term, because a mirrored
+    turn is the same motion seen in a mirror — the curl, the foreshortening
+    and the moment the leaf goes edge-on are all unchanged.
 
     The leaf is modelled as a section of a cylinder: its cross-section is an
     arc of `LEAF_CURL_RADIANS` (scaled by how far through the turn it is),
@@ -227,7 +234,7 @@ def leaf_curve(
         samples.append(
             _LeafSample(
                 u=u,
-                x=spine_x + page_w * x_fraction,
+                x=spine_x + direction * page_w * x_fraction,
                 inset=LEAF_LIFT_FRACTION * page_h * depth,
                 depth=depth,
             )
@@ -235,15 +242,24 @@ def leaf_curve(
     return LeafCurve(tuple(samples), showing_back=math.cos(theta) < 0)
 
 
-def leaf_source_x(u: float, face_width: float, showing_back: bool) -> float:
+def leaf_source_x(u: float, face_width: float, showing_back: bool, *, right_to_left: bool = False) -> float:
     """Where `u` — measured from the spine — falls on the page image.
 
-    A recto is bound along its left edge, so `u` runs left to right across
-    it. The verso on the back of that same sheet is bound along its *right*
-    edge, so it runs the other way. Reversing here is what keeps the back
-    face readable instead of mirrored once the leaf passes edge-on.
+    In a left-bound book a recto is bound along its left edge, so `u` runs
+    left to right across it. The verso on the back of that same sheet is
+    bound along its *right* edge, so it runs the other way. Reversing here is
+    what keeps the back face readable instead of mirrored once the leaf
+    passes edge-on.
+
+    Right-to-left binding swaps which face is which: the leaf's front is now
+    bound along its right edge. So the two conditions compose — reverse when
+    exactly one of them holds, not when either does. Getting this wrong
+    mirrors the text on one face and only on one face, which is the same
+    class of bug the left-bound version had before it was fixed.
     """
-    return (1.0 - u) * face_width if showing_back else u * face_width
+    if showing_back != right_to_left:
+        return (1.0 - u) * face_width
+    return u * face_width
 
 
 def edge_stack_width(leaves: int, scale: float, page_w: float) -> float:
@@ -357,6 +373,7 @@ class PageTurnView(QWidget):
         self._progress = 0.0
         self._press_origin: QPointF | None = None
         self._dragging = False
+        self._right_to_left = False
         self._turn_duration_ms = TURN_DURATION_MS
 
         self._animation = QPropertyAnimation(self, b"turn_progress", self)
@@ -381,6 +398,28 @@ class PageTurnView(QWidget):
 
     #: Driven by `_animation`; assigning it repaints.
     turn_progress = Property(float, _get_turn_progress, _set_turn_progress)
+
+    def set_reading_direction(self, right_to_left: bool) -> None:
+        """Mirror the whole display: which side a lone cover sits on, which
+        page the leaf is, which way it swings, and which way the clicks,
+        drags and arrow keys page.
+
+        The spread images themselves arrive already mirrored — the bound
+        preview document is built with the pages in the cells the binding
+        puts them in — so this only mirrors the motion around them.
+        """
+        if right_to_left == self._right_to_left:
+            return
+        self._right_to_left = right_to_left
+        self.finish_turn()
+        self._turn = None
+        self._backdrop = None
+        self.update()
+
+    @property
+    def _direction(self) -> int:
+        """+1 when leaves start on the right and sweep left, -1 mirrored."""
+        return -1 if self._right_to_left else 1
 
     def set_turn_duration_ms(self, duration_ms: int) -> None:
         """Set the turn length. `0` disables animation entirely, so a
@@ -489,14 +528,16 @@ class PageTurnView(QWidget):
     def _halves(self, index: int) -> tuple[QPixmap | None, QPixmap | None]:
         """The `(left, right)` page faces of view `index`; either may be
         `None`. A lone cover occupies only one side — the first view is a
-        recto (it sits to the right of the spine, its verso being the inside
+        recto (it sits away from the spine's side, its verso being the inside
         front cover, which isn't a page), and a trailing lone view is the
-        matching verso."""
+        matching verso. Right-to-left binding puts the spine on the right, so
+        both land on the opposite side from the default."""
         pixmap = self._view_pixmap(index)
         if pixmap is None:
             return None, None
         if self._is_single(index):
-            return (None, pixmap) if index == 0 else (pixmap, None)
+            cover_on_left = (index == 0) == self._right_to_left
+            return (pixmap, None) if cover_on_left else (None, pixmap)
         half = pixmap.width() // 2
         return (
             pixmap.copy(0, 0, half, pixmap.height()),
@@ -514,8 +555,14 @@ class PageTurnView(QWidget):
         """
         if self._document is None or earlier < 0 or later >= self._document.page_count:
             return False
-        left_static, leaf_front = self._halves(earlier)
-        leaf_back, right_static = self._halves(later)
+        if self._right_to_left:
+            # Bound on the right: the leaf lifts off the left of the earlier
+            # view and comes down on the right of the later one.
+            leaf_front, right_static = self._halves(earlier)
+            left_static, leaf_back = self._halves(later)
+        else:
+            left_static, leaf_front = self._halves(earlier)
+            leaf_back, right_static = self._halves(later)
         self._turn = _Turn(left_static, right_static, leaf_front, leaf_back, earlier, later, forward)
         self._backdrop = None  # the static pages either side of the leaf changed
         return True
@@ -631,13 +678,20 @@ class PageTurnView(QWidget):
         leaf in flight belongs to neither stack — it is drawn separately —
         so the two counts and the flying leaf together still account for
         every leaf in the book.
+
+        Returns them as drawn, left then right — so right-to-left binding
+        swaps the pair, the leaves you have already turned having piled up
+        on the right.
         """
         if self._is_empty():
             return 0, 0
         total_leaves = self._document.page_count - 1
         if self._turn is None:
-            return self._index, total_leaves - self._index
-        return self._turn.earlier_index, total_leaves - self._turn.later_index
+            turned, remaining = self._index, total_leaves - self._index
+        else:
+            turned = self._turn.earlier_index
+            remaining = total_leaves - self._turn.later_index
+        return (remaining, turned) if self._right_to_left else (turned, remaining)
 
     def _draw_edge_stack(
         self,
@@ -715,7 +769,7 @@ class PageTurnView(QWidget):
         lift = cast_shadow_strength(self._progress)
         if lift <= 0.01:
             return
-        side = -1 if self._progress > 0.5 else 1
+        side = (-1 if self._progress > 0.5 else 1) * self._direction
         reach = page_w * _CAST_SHADOW_REACH
         gradient = QLinearGradient(spine_x, 0.0, spine_x + side * reach, 0.0)
         gradient.setColorAt(0.0, QColor(0, 0, 0, int(_CAST_SHADOW_ALPHA * lift)))
@@ -740,7 +794,7 @@ class PageTurnView(QWidget):
     def _draw_leaf(
         self, painter: QPainter, spine_x: float, top_y: float, page_w: float, page_h: float
     ) -> None:
-        curve = leaf_curve(self._progress, page_w, page_h, spine_x, top_y)
+        curve = leaf_curve(self._progress, page_w, page_h, spine_x, top_y, direction=self._direction)
         face = self._turn.leaf_back if curve.showing_back else self._turn.leaf_front
         if face is None or face.isNull():
             return
@@ -782,8 +836,8 @@ class PageTurnView(QWidget):
         """
         if abs(far.x - near.x) < _MIN_STRIP_WIDTH_PX:
             return
-        near_source = leaf_source_x(near.u, face.width(), showing_back)
-        far_source = leaf_source_x(far.u, face.width(), showing_back)
+        near_source = leaf_source_x(near.u, face.width(), showing_back, right_to_left=self._right_to_left)
+        far_source = leaf_source_x(far.u, face.width(), showing_back, right_to_left=self._right_to_left)
 
         source = QPolygonF(
             [
@@ -864,7 +918,7 @@ class PageTurnView(QWidget):
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
         if not dragging:
-            self.step_requested.emit(-1 if origin.x() < self.width() / 2 else 1)
+            self.step_requested.emit(1 if self._is_forward_half(origin.x()) else -1)
             return
         self._settle_drag()
 
@@ -872,7 +926,7 @@ class PageTurnView(QWidget):
         """Assemble the leaf under the pointer. Which one it is follows the
         half of the spread the press landed on — the same halves a click
         uses, and the ones you would physically take hold of."""
-        forward = self._press_origin.x() >= self.width() / 2
+        forward = self._is_forward_half(self._press_origin.x())
         earlier = self._index if forward else self._index - 1
         later = self._index + 1 if forward else self._index
         if not self._prepare_turn(earlier, later, forward=forward):
@@ -881,6 +935,13 @@ class PageTurnView(QWidget):
         self._progress = self._turn.start_progress
         self.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
         return True
+
+    def _is_forward_half(self, x: float) -> bool:
+        """Whether `x` is on the half of the spread holding the leaf that
+        moves the book forwards — the one you would reach for. That is the
+        right half in a left-bound book and the left half in a right-bound
+        one."""
+        return (x < self.width() / 2) == self._right_to_left
 
     def _progress_at(self, pointer_x: float) -> float:
         """Where in the turn the leaf has to be for its fore edge to sit
@@ -902,7 +963,7 @@ class PageTurnView(QWidget):
         )
         if page_w <= 0:
             return self._progress
-        fraction = (pointer_x - self.width() / 2) / page_w
+        fraction = (pointer_x - self.width() / 2) / (page_w * self._direction)
         return math.acos(max(-1.0, min(1.0, fraction))) / math.pi
 
     def _settle_drag(self) -> None:
@@ -926,8 +987,9 @@ class PageTurnView(QWidget):
 
     def keyPressEvent(self, event) -> None:  # noqa: N802 (Qt override)
         """Left/Right page through the book, matching the direction the
-        pages themselves move."""
-        steps = {Qt.Key.Key_Left: -1, Qt.Key.Key_Right: 1}
+        pages themselves move — so they swap over for right-to-left
+        binding, where pressing Left advances."""
+        steps = {Qt.Key.Key_Left: -self._direction, Qt.Key.Key_Right: self._direction}
         step = steps.get(Qt.Key(event.key()))
         if step is None or self._is_empty():
             super().keyPressEvent(event)

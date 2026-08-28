@@ -17,7 +17,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 """Form panel for imposition parameters (signature size, sheet size, margin,
-gutter, crop marks), saved presets, plus a read-only summary of the
+gutter, crop marks, binding direction), saved presets, plus a read-only summary of the
 resulting layout (number of signatures, blanks added, sheet count, ...).
 Emits the current settings as an `ImpositionParams` when the user clicks
 Apply (or picks a preset) — deliberately not live-on-every-keystroke, so
@@ -183,6 +183,14 @@ class ImpositionPanel(QWidget):
             lambda checked: self._include_endpapers.setChecked(False) if checked else None
         )
 
+        self._right_to_left = QCheckBox("Right-to-left binding (manga style)")
+        self._right_to_left.setToolTip(
+            "Bind on the right and read right to left, as Japanese comics\n"
+            "and most Hebrew and Arabic books are bound.\n\n"
+            "Mirrors each sheet: the same pages share each sheet, they just\n"
+            "swap sides. Sheet and signature counts are unchanged."
+        )
+
         self._apply_button = QPushButton("Apply")
         self._apply_button.clicked.connect(self.try_emit_params)
 
@@ -200,6 +208,7 @@ class ImpositionPanel(QWidget):
         form.addRow(self._include_endpapers)
         form.addRow(self._separate_cover)
         form.addRow(self._pad_last_signature_to_full)
+        form.addRow(self._right_to_left)
         form.addRow(self._apply_button)
 
         self._stats_label = QLabel("Open a PDF to see layout stats.")
@@ -260,6 +269,7 @@ class ImpositionPanel(QWidget):
         self._include_endpapers.setChecked(params.include_endpapers)
         self._separate_cover.setChecked(params.separate_cover)
         self._pad_last_signature_to_full.setChecked(params.pad_last_signature_to_full)
+        self._right_to_left.setChecked(params.right_to_left)
         self._sync_paper_size()
 
     def current_params(self) -> ImpositionParams:
@@ -281,6 +291,7 @@ class ImpositionPanel(QWidget):
             include_endpapers=self._include_endpapers.isChecked(),
             separate_cover=self._separate_cover.isChecked(),
             pad_last_signature_to_full=self._pad_last_signature_to_full.isChecked(),
+            right_to_left=self._right_to_left.isChecked(),
         )
 
     def try_emit_params(self) -> None:

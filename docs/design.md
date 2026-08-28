@@ -85,6 +85,7 @@ while the print disagrees.
 | `include_endpapers` | False | Blank leading/trailing page for a hardcover case |
 | `separate_cover` | False | First/last page as a wrap folio. Excludes endpapers |
 | `pad_last_signature_to_full` | False | Off = pad only to a multiple of 4 |
+| `right_to_left` | False | Bind on the right; mirrors each sheet side |
 
 There's no scale percentage — `keep_proportion=True` fits each page to its
 cell, so scale falls out of the margin and gutter.
