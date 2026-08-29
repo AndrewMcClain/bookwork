@@ -101,6 +101,10 @@ class ImpositionPanel(QWidget):
         self._settings = settings if settings is not None else default_settings()
 
         self._preset_combo = QComboBox()
+        self._preset_combo.setToolTip(
+            "Picking a preset applies it immediately — unlike the fields below,\n"
+            "which wait until Apply is pressed."
+        )
         self._preset_combo.activated.connect(self._on_preset_selected)
         self._save_preset_button = QPushButton("Save As...")
         self._save_preset_button.setToolTip("Save the current settings below as a named preset.")
@@ -123,8 +127,14 @@ class ImpositionPanel(QWidget):
             "the whole document, or a multiple of 4)."
         )
 
-        self._sheet_width_in = self._make_inch_spinbox()
-        self._sheet_height_in = self._make_inch_spinbox()
+        self._sheet_width_in = self._make_inch_spinbox(
+            "The sheet is fed landscape and folded across its width, so this is\n"
+            "the long edge the fold runs through (listed wide edge first, like\n"
+            "the paper-size dropdown)."
+        )
+        self._sheet_height_in = self._make_inch_spinbox(
+            "The short edge of the sheet — perpendicular to the fold."
+        )
 
         self._paper_size = QComboBox()
         self._paper_size.addItems([*PAPER_SIZES, _CUSTOM_PAPER])
@@ -140,8 +150,13 @@ class ImpositionPanel(QWidget):
         self._paper_size.activated.connect(self._on_paper_size_selected)
         for spinbox in (self._sheet_width_in, self._sheet_height_in):
             spinbox.valueChanged.connect(self._sync_paper_size)
-        self._margin_in = self._make_inch_spinbox()
-        self._gutter_in = self._make_inch_spinbox()
+        self._margin_in = self._make_inch_spinbox(
+            "Applies to all four edges of each cell."
+        )
+        self._gutter_in = self._make_inch_spinbox(
+            "Additional inset on the spine side only, on top of the margin —\n"
+            "the spine-side gap is margin plus gutter, not either one alone."
+        )
 
         self._show_crop_marks = QCheckBox("Show crop marks")
         self._show_crop_marks.setToolTip(
@@ -192,6 +207,10 @@ class ImpositionPanel(QWidget):
         )
 
         self._apply_button = QPushButton("Apply")
+        self._apply_button.setToolTip(
+            "Settings are deliberately not live per keystroke — nothing is\n"
+            "re-imposed until this is pressed."
+        )
         self._apply_button.clicked.connect(self.try_emit_params)
 
         self._set_fields(initial)
@@ -251,12 +270,13 @@ class ImpositionPanel(QWidget):
         self._paper_size.setCurrentIndex(self._paper_size.findText(name))
 
     @staticmethod
-    def _make_inch_spinbox() -> QDoubleSpinBox:
+    def _make_inch_spinbox(tooltip: str) -> QDoubleSpinBox:
         box = QDoubleSpinBox()
         box.setRange(0.0, 100.0)
         box.setSingleStep(0.125)
         box.setDecimals(3)
         box.setSuffix(" in")
+        box.setToolTip(tooltip)
         return box
 
     def _set_fields(self, params: ImpositionParams) -> None:
