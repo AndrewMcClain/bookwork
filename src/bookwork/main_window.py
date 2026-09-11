@@ -138,29 +138,26 @@ class MainWindow(QMainWindow):
         if path:
             self.open_pdf(path)
 
-    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
-        """Accept drags that carry at least one local `.pdf` file.
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # noqa: N802 (Qt override)
+        """Accept drags that carry exactly one local `.pdf` file.
 
-        The extension check happens here so the cursor already shows the drop
-        is refused before the mouse is released, instead of accepting the drop
-        and then showing an error dialog.
+        Multiple files are rejected (the drop opens only one PDF, and a
+        single-file drop gives a clearer user experience). The extension check
+        happens here so the cursor already shows the drop is refused before the
+        mouse is released.
         """
-        if event.mimeData().hasUrls():
-            urls = event.mimeData().urls()
-            if any(url.isLocalFile() and url.toLocalFile().lower().endswith(".pdf") for url in urls):
-                event.acceptProposedAction()
-                return
-        event.ignore()
-
-    def dropEvent(self, event: QDropEvent) -> None:
-        """Open the first local `.pdf` from the drop; ignore everything else."""
         urls = event.mimeData().urls()
-        for url in urls:
-            if url.isLocalFile() and url.toLocalFile().lower().endswith(".pdf"):
-                self.open_pdf(url.toLocalFile())
-                event.acceptProposedAction()
-                return
-        event.ignore()
+        if len(urls) == 1 and urls[0].isLocalFile() and urls[0].toLocalFile().lower().endswith(".pdf"):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802 (Qt Override)
+        """Open the dropped `.pdf`; reject drops that carry more than one file."""
+        urls = event.mimeData().urls()
+        if len(urls) == 1 and urls[0].isLocalFile() and urls[0].toLocalFile().lower().endswith(".pdf"):
+            self.open_pdf(urls[0].toLocalFile())
+            event.acceptProposedAction()
+        else:
+            event.ignore()
 
     def open_pdf(self, path: str) -> None:
         try:
