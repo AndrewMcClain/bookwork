@@ -439,17 +439,55 @@ def _build_sheets(src: fitz.Document, order: list[int | None], params: Impositio
     for i in range(0, len(order), 2):
         cells = dict(zip(sides, order[i : i + 2], strict=True))
         left_index, right_index = cells["left"], cells["right"]
+        # order[i] lands in whichever cell sides[0] names; the other position
+        # (i+1) is the facing cell's -- needed below so a blank cell can be
+        # fitted to its facing page's aspect ratio rather than the raw cell.
+        left_position, right_position = (i, i + 1) if sides[0] == "left" else (i + 1, i)
+        left_reference = left_index if left_index is not None else _reference_page_index(order, left_position)
+        right_reference = (
+            right_index if right_index is not None else _reference_page_index(order, right_position)
+        )
+
         page = out.new_page(width=params.sheet_width_pt, height=params.sheet_height_pt)
         left_cell = fitz.Rect(0, 0, cell_width, params.sheet_height_pt)
         right_cell = fitz.Rect(cell_width, 0, params.sheet_width_pt, params.sheet_height_pt)
-        left_content_rect = _place_in_cell(page, src, left_index, left_cell, params, spine_on_right=True)
-        right_content_rect = _place_in_cell(page, src, right_index, right_cell, params, spine_on_right=False)
+        left_content_rect = _place_in_cell(
+            page, src, left_index, left_cell, params, spine_on_right=True, reference_page_index=left_reference
+        )
+        right_content_rect = _place_in_cell(
+            page,
+            src,
+            right_index,
+            right_cell,
+            params,
+            spine_on_right=False,
+            reference_page_index=right_reference,
+        )
 
         if params.show_crop_marks:
             _draw_crop_marks(page, left_content_rect)
             _draw_crop_marks(page, right_content_rect)
 
     return out
+
+
+def _reference_page_index(order: list[int | None], position: int) -> int | None:
+    """The source page a blank slot at `position` should borrow its aspect
+    ratio from, so its crop marks trim to the same size as real content --
+    see `_place_in_cell`. Prefers the facing cell on the same sheet side
+    (`position ^ 1`, its partner in the `(even, odd)` pair); if that's blank
+    too (a whole blank sheet side -- an endpaper signature, or a
+    `separate_cover` wrap folio's inside spread), widens outward by physical
+    distance. `None` only if `order` has no real content anywhere.
+    """
+    facing = position ^ 1
+    if 0 <= facing < len(order) and order[facing] is not None:
+        return order[facing]
+    for distance in range(1, len(order)):
+        for neighbor in (position - distance, position + distance):
+            if 0 <= neighbor < len(order) and order[neighbor] is not None:
+                return order[neighbor]
+    return None
 
 
 def _place_in_cell(
@@ -460,6 +498,7 @@ def _place_in_cell(
     params: ImpositionParams,
     *,
     spine_on_right: bool,
+    reference_page_index: int | None = None,
 ) -> fitz.Rect:
     """Place one source page (or leave blank) into one half of a sheet.
 
@@ -471,8 +510,14 @@ def _place_in_cell(
     proportional-fit-and-center then handles scale-down and centering within
     whatever rect results, so no separate scale parameter is needed.
 
+    `reference_page_index` (see `_reference_page_index`) is only consulted
+    when `source_page_index` is `None`: it is a nearby real page whose aspect
+    ratio the blank cell should be fitted to, so a trimmed blank ends up the
+    same size as the real pages around it instead of the full cell.
+
     Returns the rect the page's content actually ends up occupying (or, for
-    a blank cell, the intended target rect) — see `_fitted_content_rect` and
+    a blank cell, the equivalent fitted rect, or the raw target if no
+    reference page is available at all) — see `_fitted_content_rect` and
     `_draw_crop_marks`. This is *not* necessarily `target` below: if the
     source page's aspect ratio doesn't match `target`'s, `keep_proportion`
     shrinks it further and centers it, leaving asymmetric blank space.
@@ -489,7 +534,9 @@ def _place_in_cell(
 
     target = fitz.Rect(x0, y0, x1, y1)
     if source_page_index is None:
-        return target
+        if reference_page_index is None:
+            return target
+        return _fitted_content_rect(src[reference_page_index].rect, target)
 
     page.show_pdf_page(target, src, source_page_index, keep_proportion=True)
     return _fitted_content_rect(src[source_page_index].rect, target)

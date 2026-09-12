@@ -29,6 +29,7 @@ import pytest
 from bookwork.imposition import (
     ImpositionParams,
     _fitted_content_rect,
+    _reference_page_index,
     bound_reading_order,
     build_bound_preview,
     build_cover_order,
@@ -311,6 +312,154 @@ def test_crop_marks_track_the_actual_content_edge_not_the_fixed_cell(make_pdf):
     # i.e. away from the content, never crossing over it).
     assert min(left_cell_marks) == pytest.approx(79.9 - 10, abs=0.5)
     assert max(left_cell_marks) == pytest.approx(298.1 + 10, abs=0.5)
+
+
+def _marked_box(page: fitz.Page, in_cell) -> tuple[float, float, float, float]:
+    """The (x0, y0, x1, y1) bounding box of a page's crop-mark points that
+    fall in one cell, selected by `in_cell(x)` on each point's x-coordinate.
+    """
+    xs, ys = [], []
+    for drawing in page.get_drawings():
+        for item in drawing["items"]:
+            for point in item[1:]:
+                if hasattr(point, "x") and in_cell(point.x):
+                    xs.append(point.x)
+                    ys.append(point.y)
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def test_blank_crop_marks_match_content_crop_marks_on_the_same_sheet(make_pdf):
+    # Regression test for #10: a blank cell used to get crop marks at the
+    # raw margin/gutter cell, while a real page's marks sit at its
+    # letterboxed content edge -- a different (larger) size whenever the
+    # source aspect ratio doesn't match the cell's, so a trimmed booklet's
+    # blank sides wouldn't match the pages around them.
+    #
+    # 6 pages at signature_size_pages=8 pads to order
+    # [None, 0, 1, None, 5, 2, 3, 4] (see
+    # test_impose_pads_partial_signature_with_visible_blanks) -> sheet 0
+    # (out[0]) has a blank left cell facing real content (source index 0) in
+    # the right cell, which is exactly the case the fix targets.
+    path = make_pdf(num_pages=6, page_size=(300, 792))
+    src = fitz.open(path)
+    params = ImpositionParams(signature_size_pages=8, margin_pt=18, gutter_pt=18)
+    out = impose(src, params)
+    page = out[0]
+    cell_width = params.sheet_width_pt / 2
+
+    left_x0, left_y0, left_x1, left_y1 = _marked_box(page, lambda x: x < cell_width)
+    right_x0, right_y0, right_x1, right_y1 = _marked_box(page, lambda x: x >= cell_width)
+
+    # Same trim size (width and height of the marked box) on both halves...
+    assert (left_x1 - left_x0) == pytest.approx(right_x1 - right_x0, abs=0.5)
+    assert (left_y1 - left_y0) == pytest.approx(right_y1 - right_y0, abs=0.5)
+    # ...mirrored around the sheet's vertical centerline (the spine), since
+    # margin and gutter are applied symmetrically to both cells.
+    assert right_x0 == pytest.approx(2 * cell_width - left_x1, abs=0.5)
+    assert right_x1 == pytest.approx(2 * cell_width - left_x0, abs=0.5)
+
+
+def test_separate_cover_inside_blank_matches_the_cover_boxes(make_pdf):
+    # Regression test for #10: separate_cover's inside spread (sheet 1) is
+    # blank on both cells (see test_impose_separate_cover_outside_spread_
+    # layout) -- a whole blank sheet side, so _reference_page_index must
+    # widen its search rather than give up. Its two blanks must trim to the
+    # same box as the real cover pages facing them on sheet 0, not the raw
+    # margin/gutter cell.
+    path = make_pdf(num_pages=10, page_size=(300, 792))
+    src = fitz.open(path)
+    params = ImpositionParams(signature_size_pages=8, separate_cover=True, margin_pt=18, gutter_pt=18)
+    out = impose(src, params)
+    cell_width = params.sheet_width_pt / 2
+
+    cover_sheet, inside_sheet = out[0], out[1]
+    in_left, in_right = (lambda x: x < cell_width), (lambda x: x >= cell_width)
+
+    assert _marked_box(inside_sheet, in_left) == pytest.approx(_marked_box(cover_sheet, in_left), abs=0.5)
+    assert _marked_box(inside_sheet, in_right) == pytest.approx(_marked_box(cover_sheet, in_right), abs=0.5)
+
+
+def test_blank_at_signature_seam_prefers_the_facing_page():
+    # Regression test for #10: at a signature seam, the slot just before a
+    # blank isn't necessarily its facing page. 11 pages at
+    # signature_size_pages=8 (padded to a full second signature) gives
+    # physical order [7,0,1,6,5,2,3,4, None,8,9,None, None,10,None,None] --
+    # sheet 4's left cell (position 8) is blank, and its true facing cell is
+    # position 9 (source index 8, the same sheet's right cell), not position
+    # 7 (source index 4, the end of signature 1). Source index 4 alone gets
+    # a different shape so borrowing from the wrong neighbour would show up
+    # in the blank's crop-mark geometry instead of matching its real
+    # neighbour.
+    doc = fitz.open()
+    for i in range(11):
+        width, height = (612, 400) if i == 4 else (300, 792)
+        page = doc.new_page(width=width, height=height)
+        page.insert_text((72, 72), f"Page {i + 1}")
+
+    src = fitz.open("pdf", doc.tobytes())
+    doc.close()
+    params = ImpositionParams(
+        signature_size_pages=8, pad_last_signature_to_full=True, margin_pt=18, gutter_pt=18
+    )
+    out = impose(src, params)
+    cell_width = params.sheet_width_pt / 2
+    sheet4 = out[4]
+
+    blank_box = _marked_box(sheet4, lambda x: x < cell_width)  # position 8, blank
+    facing_box = _marked_box(sheet4, lambda x: x >= cell_width)  # position 9, source index 8
+
+    # Same trim size, mirrored across the spine -- as in
+    # test_blank_crop_marks_match_content_crop_marks_on_the_same_sheet.
+    assert (blank_box[2] - blank_box[0]) == pytest.approx(facing_box[2] - facing_box[0], abs=0.5)
+    assert (blank_box[3] - blank_box[1]) == pytest.approx(facing_box[3] - facing_box[1], abs=0.5)
+    assert facing_box[0] == pytest.approx(2 * cell_width - blank_box[2], abs=0.5)
+    assert facing_box[2] == pytest.approx(2 * cell_width - blank_box[0], abs=0.5)
+
+
+def test_reference_page_index_prefers_the_facing_cell():
+    # The facing cell (position ^ 1) wins even when another real page is
+    # equally near in the order: position 2's facing cell is 3, while
+    # position 1 is the back half of the previous sheet side.
+    order = [0, 1, None, 2]
+    assert _reference_page_index(order, 2) == 2
+
+    order = [None, 5, 3, None]
+    assert _reference_page_index(order, 0) == 5
+    assert _reference_page_index(order, 3) == 3
+
+
+def test_reference_page_index_searches_outward_when_the_whole_sheet_is_blank():
+    # Both cells of the second sheet side (positions 2 and 3) are blank; the
+    # nearest real content is page 7 at position 1.
+    order = [None, 7, None, None]
+    assert _reference_page_index(order, 2) == 7
+    assert _reference_page_index(order, 3) == 7
+
+
+def test_reference_page_index_returns_none_when_nothing_is_real():
+    assert _reference_page_index([None, None, None, None], 1) is None
+    assert _reference_page_index([], 0) is None
+
+
+def test_impose_all_blank_sheet_does_not_crash():
+    # include_endpapers with a source document that has no real pages at all
+    # produces a signature that is entirely leading/trailing blanks (padded
+    # to a multiple of 4) -- every cell on the sheet is blank, and there is
+    # no source page anywhere to borrow an aspect ratio from. Must not crash
+    # trying to index src[reference_page_index]; falls back to the raw cell.
+    # (An empty PDF can't be round-tripped through disk -- PyMuPDF refuses to
+    # save a zero-page document -- so build it directly instead of make_pdf.)
+    src = fitz.open()
+    out = impose(src, ImpositionParams(include_endpapers=True, show_crop_marks=True))
+    assert out.page_count == 2
+    for page in out:
+        assert page.get_text().strip() == ""
+
+
+def test_impose_empty_document_produces_no_sheets():
+    src = fitz.open()
+    out = impose(src, ImpositionParams())
+    assert out.page_count == 0
 
 
 def test_bound_reading_order_s8_reference():
