@@ -22,7 +22,7 @@ imposition settings.
 
 from __future__ import annotations
 
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QDragEnterEvent, QDropEvent, QKeySequence
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import (
     QDialog,
@@ -47,6 +47,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Bookwork")
         self.resize(1100, 800)
+        self.setAcceptDrops(True)
 
         self._source_pane = PdfViewerPane()
         self._imposed_pane = PdfViewerPane()
@@ -136,6 +137,27 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Open PDF", filter="PDF files (*.pdf)")
         if path:
             self.open_pdf(path)
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # noqa: N802 (Qt override)
+        """Accept drags that carry exactly one local `.pdf` file.
+
+        Multiple files are rejected (the drop opens only one PDF, and a
+        single-file drop gives a clearer user experience). The extension check
+        happens here so the cursor already shows the drop is refused before the
+        mouse is released.
+        """
+        urls = event.mimeData().urls()
+        if len(urls) == 1 and urls[0].isLocalFile() and urls[0].toLocalFile().lower().endswith(".pdf"):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802 (Qt Override)
+        """Open the dropped `.pdf`; reject drops that carry more than one file."""
+        urls = event.mimeData().urls()
+        if len(urls) == 1 and urls[0].isLocalFile() and urls[0].toLocalFile().lower().endswith(".pdf"):
+            self.open_pdf(urls[0].toLocalFile())
+            event.acceptProposedAction()
+        else:
+            event.ignore()
 
     def open_pdf(self, path: str) -> None:
         try:
