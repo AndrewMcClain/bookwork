@@ -150,9 +150,7 @@ class ImpositionPanel(QWidget):
         self._paper_size.activated.connect(self._on_paper_size_selected)
         for spinbox in (self._sheet_width_in, self._sheet_height_in):
             spinbox.valueChanged.connect(self._sync_paper_size)
-        self._margin_in = self._make_inch_spinbox(
-            "Applies to all four edges of each cell."
-        )
+        self._margin_in = self._make_inch_spinbox("Applies to all four edges of each cell.")
         self._gutter_in = self._make_inch_spinbox(
             "Additional inset on the spine side only, on top of the margin —\n"
             "the spine-side gap is margin plus gutter, not either one alone."
@@ -208,8 +206,7 @@ class ImpositionPanel(QWidget):
 
         self._apply_button = QPushButton("Apply")
         self._apply_button.setToolTip(
-            "Settings are deliberately not live per keystroke — nothing is\n"
-            "re-imposed until this is pressed."
+            "Settings are deliberately not live per keystroke — nothing is\nre-imposed until this is pressed."
         )
         self._apply_button.clicked.connect(self.try_emit_params)
 
