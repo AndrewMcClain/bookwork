@@ -48,6 +48,13 @@ extend-select = ["N"]
 # private helpers to check geometry and cache behaviour.
 "tests/*" = ["S101", "SLF001"]
 
+[tool.ruff.format]
+# ruff's "auto" default infers the ending from the first line break, so a file
+# converted wholesale to CRLF passes the check — which is how PR #7 turned a
+# 26-line change into a 309-line whole-file diff. Pinning to lf makes that a
+# CI failure instead of a review problem.
+line-ending = "lf"
+
 [tool.commitizen]
 name = "cz_conventional_commits"
 version = "0.2.0"
