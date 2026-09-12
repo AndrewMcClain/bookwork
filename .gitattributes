@@ -1,0 +1,5 @@
+# Normalise every text file to LF on the way in, so a contributor's
+# core.autocrlf on Windows can't commit a CRLF conversion that shows up as a
+# whole-file diff (PR #7). The repo is all text today, so `text=auto` has
+# nothing to misdetect.
+* text=auto eol=lf
